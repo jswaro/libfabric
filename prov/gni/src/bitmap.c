@@ -10,7 +10,6 @@
 int find_first_zero_bit(gnix_bitmap_t *bitmap)
 {
 	int i, pos;
-	gnix_bitmap_value_t full_value = ~0;
 	gnix_bitmap_value_t value;
 
 	for (i = 0, pos = 0; i < BITMAP_BLOCKS(bitmap->length);
