@@ -7,38 +7,6 @@
 
 #include "bitmap.h"
 
-static inline int __find_first_zero_bit(uint8_t val)
-{
-	int i;
-	uint8_t j;
-
-	for (i = 0, j = 1; i < 8; ++i, j <<= 1) {
-		if (!(val & j))
-			break;
-	}
-
-	return i;
-}
-
-static inline int __find_first_zero_byte(gnix_bitmap_value_t *val)
-{
-	int i, pos, ret;
-	uint8_t *iter = (uint8_t *) val;
-	uint8_t full_value = ~0;
-
-	for (i = 0, pos = 0;
-			i < sizeof(gnix_bitmap_value_t);
-			++i, pos += 8) {
-
-		if (iter[i] != full_value) {
-			pos += __find_first_zero_bit(iter[i]);
-			break;
-		}
-	}
-
-	return pos;
-}
-
 int find_first_zero_bit(gnix_bitmap_t *bitmap)
 {
 	int i, pos;
@@ -51,46 +19,15 @@ int find_first_zero_bit(gnix_bitmap_t *bitmap)
 		block = &bitmap->arr[i];
 		value = __gnix_load_block(bitmap, i);
 		if (value != full_value) {
-			pos += __find_first_zero_byte(&value);
+			/* no need to check for errors because we have
+			   established there is an unset bit */
+			pos += ffsll(~value) - 1;
 
 			return pos;
 		}
 	}
 
 	return bitmap->length;
-}
-
-static inline int __find_first_set_bit(gnix_bitmap_value_t val)
-{
-
-	int i;
-	uint8_t j;
-
-	for (i = 0, j = 1; i < 8; ++i, j <<= 1) {
-		if (val & j)
-			break;
-	}
-
-	return i;
-}
-
-
-static inline int __find_first_set_byte(gnix_bitmap_value_t *val)
-{
-	int i, pos, ret;
-	uint8_t *iter = (uint8_t *) val;
-
-	for (i = 0, pos = 0;
-			i < sizeof(gnix_bitmap_value_t);
-			++i, pos += 8) {
-
-		if ((iter[i] != 0)) {
-			pos += __find_first_set_bit(iter[i]);
-			break;
-		}
-	}
-
-	return pos;
 }
 
 int find_first_set_bit(gnx_bitmap_t *bitmap)
@@ -105,7 +42,9 @@ int find_first_set_bit(gnx_bitmap_t *bitmap)
 		block = &bitmap->arr[i];
 		value = __gnix_load_block(bitmap, i);
 		if (value != 0) {
-			pos += __find_first_set_byte(&value);
+			/* no need to check for errors because we have
+			   established there is a set bit */
+			pos += ffsll(value) - 1;
 
 			return pos;
 		}

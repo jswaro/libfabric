@@ -8,6 +8,8 @@
 #ifndef BITMAP_H_
 #define BITMAP_H_
 
+#include <stdint.h>
+
 #include "fi.h"
 
 #define GNIX_BITMAP_BUCKET_BITS 6
@@ -184,5 +186,9 @@ int realloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits);
 void free_bitmap(gnix_bitmap_t *bitmap);
 
 int fill_bitmap(gnix_bitmap_t *bitmap, int value);
+
+#if sizeof(long long int) != sizeof(gnix_bitmap_value_t)
+#error "long long int != gnix_bitmap_value_t, results will be invalid"
+#endif
 
 #endif /* BITMAP_H_ */
