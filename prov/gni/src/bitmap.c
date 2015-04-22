@@ -15,11 +15,13 @@ int find_first_zero_bit(gnix_bitmap_t *bitmap)
 
 	for (i = 0, pos = 0; i < BITMAP_BLOCKS(bitmap->length);
 			++i, pos += GNIX_BITMAP_BUCKET_LENGTH) {
-		value = __gnix_load_block(&bitmap->arr[i], i);
-		if (value != full_value) {
+		/* invert the bits to check for first zero bit */
+		value = ~(__gnix_load_block(&bitmap->arr[i], i));
+
+		if (value != 0) {
 			/* no need to check for errors because we have
 			   established there is an unset bit */
-			pos += ffsll(~value) - 1;
+			pos += ffsll(value) - 1;
 
 			return pos;
 		}
@@ -31,12 +33,12 @@ int find_first_zero_bit(gnix_bitmap_t *bitmap)
 int find_first_set_bit(gnx_bitmap_t *bitmap)
 {
 	int i, pos;
-	gnix_bitmap_value_t full_value = ~0;
 	gnix_bitmap_value_t value;
 
 	for (i = 0, pos = 0; i < BITMAP_BLOCKS(bitmap->length);
 			++i, pos += GNIX_BITMAP_BUCKET_LENGTH) {
 		value = __gnix_load_block(&bitmap->arr[i], i);
+
 		if (value != 0) {
 			/* no need to check for errors because we have
 			   established there is a set bit */
