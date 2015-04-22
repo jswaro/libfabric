@@ -12,7 +12,8 @@ int find_first_zero_bit(gnix_bitmap_t *bitmap)
 	int i, pos;
 	gnix_bitmap_value_t value;
 
-	for (i = 0, pos = 0; i < BITMAP_BLOCKS(bitmap->length);
+	for (i = 0, pos = 0;
+			i < BITMAP_BLOCKS(bitmap->length);
 			++i, pos += GNIX_BITMAP_BUCKET_LENGTH) {
 		/* invert the bits to check for first zero bit */
 		value = ~(__gnix_load_block(&bitmap->arr[i], i));
@@ -34,7 +35,8 @@ int find_first_set_bit(gnx_bitmap_t *bitmap)
 	int i, pos;
 	gnix_bitmap_value_t value;
 
-	for (i = 0, pos = 0; i < BITMAP_BLOCKS(bitmap->length);
+	for (i = 0, pos = 0;
+			i < BITMAP_BLOCKS(bitmap->length);
 			++i, pos += GNIX_BITMAP_BUCKET_LENGTH) {
 		value = __gnix_load_block(&bitmap->arr[i], i);
 
