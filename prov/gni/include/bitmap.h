@@ -43,19 +43,31 @@ typedef enum gnix_bitmap_state {
 	GNIX_BITMAP_STATE_FREE,
 } gnix_bitmap_state_e;
 
-typedef struct gnix_bitmap {
-	pthread_rwlock_t lock;
-	gnix_bitmap_state_e state;
-	uint32_t length;
-	gnix_bitmap_block_t *arr;
-} gnix_bitmap_t;
+#define GNIX_LOCKLESS_BITMAP 1
 
+#if GNIX_LOCKLESS_BITMAP
+#define GNIX_BITMAP_LOCK_INIT(bitmap) do {} while (0)
+#define GNIX_BITMAP_READ_ACQUIRE(bitmap) do {} while (0)
+#define GNIX_BITMAP_READ_RELEASE(bitmap) do {} while (0)
+#define GNIX_BITMAP_WRITE_ACQUIRE(bitmap) do {} while (0)
+#define GNIX_BITMAP_WRITE_RELEASE(bitmap) do {} while (0)
+#else
 #define GNIX_BITMAP_LOCK_INIT(bitmap) \
 	pthread_rwlock_init(&(bitmap)->lock, NULL)
 #define GNIX_BITMAP_READ_ACQUIRE(bitmap) pthread_rwlock_rdlock(&(bitmap)->lock)
 #define GNIX_BITMAP_READ_RELEASE(bitmap) pthread_rwlock_unlock(&(bitmap)->lock)
 #define GNIX_BITMAP_WRITE_ACQUIRE(bitmap) pthread_rwlock_wrlock(&(bitmap)->lock)
 #define GNIX_BITMAP_WRITE_RELEASE(bitmap) pthread_rwlock_unlock(&(bitmap)->lock)
+#endif
+
+typedef struct gnix_bitmap {
+#if !GNIX_LOCKLESS_BITMAP
+	pthread_rwlock_t lock;
+#endif
+	gnix_bitmap_state_e state;
+	uint32_t length;
+	gnix_bitmap_block_t *arr;
+} gnix_bitmap_t;
 
 #define READ_SAFE_RETURN(bitmap, expr) \
 	({ \
@@ -188,7 +200,6 @@ static inline int test_and_clear_bit(gnix_bitmap_t *bitmap, uint32_t index)
 int alloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits);
 int realloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits);
 void free_bitmap(gnix_bitmap_t *bitmap);
-
-void fill_bitmap(gnix_bitmap_t *bitmap, int value);
+void fill_bitmap(gnix_bitmap_t *bitmap, uint64_t value);
 
 #endif /* BITMAP_H_ */
