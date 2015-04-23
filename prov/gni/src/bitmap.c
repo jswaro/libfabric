@@ -152,12 +152,13 @@ int realloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits)
 	return 0;
 }
 
-void free_bitmap(gnix_bitmap_t *bitmap)
+int free_bitmap(gnix_bitmap_t *bitmap)
 {
-	if (bitmap->state != GNIX_BITMAP_STATE_READY)
-		return;
-
 	GNIX_BITMAP_WRITE_ACQUIRE(bitmap);
+	if (bitmap->state != GNIX_BITMAP_STATE_READY) {
+		GNIX_BITMAP_WRITE_RELEASE(bitmap);
+		return -EINVAL;
+	}
 
 	bitmap->length = 0;
 	if (bitmap->arr) {
@@ -168,5 +169,7 @@ void free_bitmap(gnix_bitmap_t *bitmap)
 	bitmap->state = GNIX_BITMAP_STATE_FREE;
 
 	GNIX_BITMAP_WRITE_RELEASE(bitmap);
+
+	return 0;
 }
 
