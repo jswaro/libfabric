@@ -31,7 +31,7 @@ gnix_bitmap_t *test_bitmap = NULL;
 
 int call_free_bitmap = 0;
 
-void setup(void)
+void __gnix_bitmap_test_setup(void)
 {
 	assert(test_bitmap == NULL);
 	test_bitmap = (gnix_bitmap_t *) calloc(1, sizeof(test_bitmap));
@@ -41,7 +41,7 @@ void setup(void)
 	call_free_bitmap = 1;
 }
 
-void teardown(void)
+void __gnix_bitmap_test_teardown(void)
 {
 	if (call_free_bitmap) {
 		free_bitmap(test_bitmap);
@@ -95,8 +95,7 @@ void teardown(void)
 
 #define __test_free_bitmap_clean(bitmap) \
 	do { \
-		int __ret = free_bitmap(bitmap); \
-		assert(__ret == 0); \
+		assert(free_bitmap(bitmap) == 0); \
 		assert((bitmap)->arr == NULL); \
 		assert((bitmap)->length == 0); \
 		assert((bitmap)->state == GNIX_BITMAP_STATE_FREE); \
@@ -106,7 +105,9 @@ void teardown(void)
  *
  */
 
-TestSuite(gnix_bitmap, .init = setup, .fini = teardown);
+TestSuite(gnix_bitmap,
+		.init = __gnix_bitmap_test_setup,
+		.fini = __gnix_bitmap_test_teardown);
 
 Test(gnix_bitmap, uninitialized)
 {
