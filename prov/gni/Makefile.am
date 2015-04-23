@@ -29,7 +29,7 @@ _gni_files = \
 	prov/gni/src/bitmap.c
 
 if HAVE_CRITERION
-bin_PROGRAMS = gnitest bitmaptest
+bin_PROGRAMS = gnitest
 gnitest_SOURCES = \
 	prov/gni/test/cq.c \
 	prov/gni/test/utils.c \
