@@ -39,6 +39,7 @@ gnitest_SOURCES = \
 bitmaptest_SOURCES = \
 	prov/gni/test/bitmap.c \
 	prov/gni/test/utils.c
+	prov/gni/test/unit_bitmap.c
 
 gnitest_LDFLAGS = -static
 gnitest_CPPFLAGS = $(AM_CPPFLAGS)
