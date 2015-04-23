@@ -93,7 +93,8 @@ int alloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits)
 	}
 
 	bitmap->length = nbits;
-	bitmap->arr = calloc(GNIX_BITMAP_BLOCKS(nbits), sizeof(uint64_t));
+	bitmap->arr = calloc(GNIX_BITMAP_BLOCKS(nbits),
+			sizeof(gnix_bitmap_block_t));
 	if (!bitmap->arr) {
 		GNIX_BITMAP_WRITE_RELEASE(bitmap);
 		return -ENOMEM;
@@ -133,6 +134,8 @@ int realloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits)
 			return -ENOMEM;
 		}
 
+		bitmap->arr = new_allocation;
+
 		/* Did we increase the size of the bitmap?
 		 * If so, initialize new blocks */
 		if (blocks_to_allocate > GNIX_BITMAP_BLOCKS(bitmap->length)) {
@@ -143,7 +146,6 @@ int realloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits)
 			}
 		}
 
-		bitmap->arr = new_allocation;
 		bitmap->length = nbits;
 	}
 
