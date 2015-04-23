@@ -14,6 +14,7 @@ int find_first_zero_bit(gnix_bitmap_t *bitmap)
 	int i, pos;
 	gnix_bitmap_value_t value;
 
+	GNIX_BITMAP_READ_ACQUIRE(bitmap);
 	for (i = 0, pos = 0;
 			i < GNIX_BITMAP_BLOCKS(bitmap->length);
 			++i, pos += GNIX_BITMAP_BUCKET_LENGTH) {
@@ -23,11 +24,13 @@ int find_first_zero_bit(gnix_bitmap_t *bitmap)
 		if (value != 0) {
 			/* no need to check for errors because we have
 			   established there is an unset bit */
+			GNIX_BITMAP_READ_RELEASE(bitmap);
 			pos += ffsll(value) - 1;
 
 			return pos;
 		}
 	}
+	GNIX_BITMAP_READ_RELEASE(bitmap);
 
 	return bitmap->length;
 }
@@ -37,6 +40,7 @@ int find_first_set_bit(gnix_bitmap_t *bitmap)
 	int i, pos;
 	gnix_bitmap_value_t value;
 
+	GNIX_BITMAP_READ_ACQUIRE(bitmap);
 	for (i = 0, pos = 0;
 			i < GNIX_BITMAP_BLOCKS(bitmap->length);
 			++i, pos += GNIX_BITMAP_BUCKET_LENGTH) {
@@ -45,11 +49,13 @@ int find_first_set_bit(gnix_bitmap_t *bitmap)
 		if (value != 0) {
 			/* no need to check for errors because we have
 			   established there is a set bit */
+			GNIX_BITMAP_READ_RELEASE(bitmap);
 			pos += ffsll(value) - 1;
 
 			return pos;
 		}
 	}
+	GNIX_BITMAP_READ_RELEASE(bitmap);
 
 	return bitmap->length;
 }
@@ -59,13 +65,13 @@ void fill_bitmap(gnix_bitmap_t *bitmap, int value)
 	int i;
 	gnix_bitmap_value_t fill_value = (value != 0) ? ~0 : 0;
 
-	GNIX_BITMAP_LOCK_ACQUIRE(bitmap);
+	GNIX_BITMAP_WRITE_ACQUIRE(bitmap);
 
 	for (i = 0; i < GNIX_BITMAP_BLOCKS(bitmap->length); ++i) {
 		__gnix_set_block(bitmap, i, fill_value);
 	}
 
-	GNIX_BITMAP_LOCK_RELEASE(bitmap);
+	GNIX_BITMAP_WRITE_RELEASE(bitmap);
 }
 
 int alloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits)
@@ -79,17 +85,17 @@ int alloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits)
 		GNIX_BITMAP_LOCK_INIT(bitmap);
 	}
 
-	GNIX_BITMAP_LOCK_ACQUIRE(bitmap);
+	GNIX_BITMAP_WRITE_ACQUIRE(bitmap);
 
 	if (bitmap->length != 0 || nbits == 0) {
-		GNIX_BITMAP_LOCK_RELEASE(bitmap);
+		GNIX_BITMAP_WRITE_RELEASE(bitmap);
 		return -EINVAL;
 	}
 
 	bitmap->length = nbits;
 	bitmap->arr = calloc(GNIX_BITMAP_BLOCKS(nbits), sizeof(uint64_t));
 	if (!bitmap->arr) {
-		GNIX_BITMAP_LOCK_RELEASE(bitmap);
+		GNIX_BITMAP_WRITE_RELEASE(bitmap);
 		return -ENOMEM;
 	}
 
@@ -98,7 +104,7 @@ int alloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits)
 
 	bitmap->state = GNIX_BITMAP_STATE_READY;
 
-	GNIX_BITMAP_LOCK_RELEASE(bitmap);
+	GNIX_BITMAP_WRITE_RELEASE(bitmap);
 
 	return 0;
 }
@@ -111,7 +117,7 @@ int realloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits)
 	if (bitmap->state != GNIX_BITMAP_STATE_READY)
 		return -EINVAL;
 
-	GNIX_BITMAP_LOCK_ACQUIRE(bitmap);
+	GNIX_BITMAP_WRITE_ACQUIRE(bitmap);
 
 	if (nbits == 0 && bitmap->arr) {
 		free(bitmap->arr);
@@ -130,7 +136,7 @@ int realloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits)
 		bitmap->length = nbits;
 	}
 
-	GNIX_BITMAP_LOCK_RELEASE(bitmap);
+	GNIX_BITMAP_WRITE_RELEASE(bitmap);
 
 	return 0;
 }
@@ -140,7 +146,7 @@ void free_bitmap(gnix_bitmap_t *bitmap)
 	if (bitmap->state != GNIX_BITMAP_STATE_READY)
 		return;
 
-	GNIX_BITMAP_LOCK_ACQUIRE(bitmap);
+	GNIX_BITMAP_WRITE_ACQUIRE(bitmap);
 
 	bitmap->length = 0;
 	if (bitmap->arr) {
@@ -150,6 +156,6 @@ void free_bitmap(gnix_bitmap_t *bitmap)
 
 	bitmap->state = GNIX_BITMAP_STATE_FREE;
 
-	GNIX_BITMAP_LOCK_RELEASE(bitmap);
+	GNIX_BITMAP_WRITE_RELEASE(bitmap);
 }
 

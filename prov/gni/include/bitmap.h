@@ -9,6 +9,7 @@
 #define BITMAP_H_
 
 #include <stdint.h>
+#include <pthread.h>
 #include "fi.h"
 
 #define GNIX_BITMAP_BUCKET_BITS 6
@@ -28,8 +29,6 @@
 typedef atomic_uint_fast64_t gnix_bitmap_block_t;
 typedef uint64_t gnix_bitmap_value_t;
 #else
-#define __GNIX_USE_BITMAP_LOCKS
-
 typedef struct atomic_uint64_t {
 	fastlock_t lock;
 	uint64_t val;
@@ -45,19 +44,37 @@ typedef enum gnix_bitmap_state {
 } gnix_bitmap_state_e;
 
 typedef struct gnix_bitmap {
-#ifdef __GNIX_USE_BITMAP_LOCKS
-	fastlock_t lock;
-#endif
+	pthread_rwlock_t lock;
 	gnix_bitmap_state_e state;
 	uint32_t length;
 	gnix_bitmap_block_t *arr;
 } gnix_bitmap_t;
 
-#if HAVE_ATOMICS
+#define GNIX_BITMAP_LOCK_INIT(bitmap) \
+	pthread_rwlock_init(&(bitmap)->lock, NULL)
+#define GNIX_BITMAP_READ_ACQUIRE(bitmap) pthread_rwlock_rdlock(&(bitmap)->lock)
+#define GNIX_BITMAP_READ_RELEASE(bitmap) pthread_rwlock_unlock(&(bitmap)->lock)
+#define GNIX_BITMAP_WRITE_ACQUIRE(bitmap) pthread_rwlock_wrlock(&(bitmap)->lock)
+#define GNIX_BITMAP_WRITE_RELEASE(bitmap) pthread_rwlock_unlock(&(bitmap)->lock)
 
-#define GNIX_BITMAP_LOCK_INIT(bitmap) do {} while (0)
-#define GNIX_BITMAP_LOCK_ACQUIRE(bitmap) do {} while (0)
-#define GNIX_BITMAP_LOCK_RELEASE(bitmap) do {} while (0)
+#define READ_SAFE_RETURN(bitmap, expr) \
+	({ \
+		int __ret; \
+		GNIX_BITMAP_READ_ACQUIRE(bitmap); \
+		__ret = (expr); \
+		GNIX_BITMAP_READ_RELEASE(bitmap); \
+		__ret; \
+	})
+
+#define READ_SAFE_EXEC(bitmap, func) \
+	do { \
+		GNIX_BITMAP_READ_ACQUIRE(bitmap); \
+		func; \
+		GNIX_BITMAP_READ_RELEASE(bitmap); \
+	} while (0)
+
+
+#if HAVE_ATOMICS
 
 #define __gnix_init_block(block) atomic_init(block, 0)
 #define __gnix_set_block(bitmap, index, value) \
@@ -73,10 +90,6 @@ typedef struct gnix_bitmap {
 	((atomic_load(&(bitmap)->arr[GNIX_BUCKET_INDEX(index)]) \
 			& GNIX_BIT_VALUE(index)) != 0)
 #else
-
-#define GNIX_BITMAP_LOCK_INIT(bitmap) fastlock_init(&(bitmap)->lock)
-#define GNIX_BITMAP_LOCK_ACQUIRE(bitmap) fastlock_acquire(&(bitmap)->lock)
-#define GNIX_BITMAP_LOCK_RELEASE(bitmap) fastlock_release(&(bitmap)->lock)
 
 static inline void __gnix_init_block(gnix_bitmap_block_t *block)
 {
@@ -147,27 +160,29 @@ static inline int __gnix_test_bit(gnix_bitmap_t *bitmap, int bit)
 
 static inline int test_bit(gnix_bitmap_t *bitmap, uint32_t index)
 {
-	return __gnix_test_bit(bitmap, index);
+	return READ_SAFE_RETURN(bitmap, __gnix_test_bit(bitmap, index));
 }
 
 static inline void set_bit(gnix_bitmap_t *bitmap, uint32_t index)
 {
-	__gnix_set_bit(bitmap, index);
+	READ_SAFE_EXEC(bitmap, __gnix_set_bit(bitmap, index));
 }
 
 static inline void clear_bit(gnix_bitmap_t *bitmap, uint32_t index)
 {
-	__gnix_clear_bit(bitmap, index);
+	READ_SAFE_EXEC(bitmap, __gnix_clear_bit(bitmap, index));
 }
 
 static inline int test_and_set_bit(gnix_bitmap_t *bitmap, uint32_t index)
 {
-	return (__gnix_set_bit(bitmap, index) & GNIX_BIT_VALUE(index)) != 0;
+	return READ_SAFE_RETURN(bitmap,
+			(__gnix_set_bit(bitmap, index) & GNIX_BIT_VALUE(index)) != 0);
 }
 
 static inline int test_and_clear_bit(gnix_bitmap_t *bitmap, uint32_t index)
 {
-	return (__gnix_clear_bit(bitmap, index) & GNIX_BIT_VALUE(index)) != 0;
+	return READ_SAFE_RETURN(bitmap,
+			(__gnix_clear_bit(bitmap, index) & GNIX_BIT_VALUE(index)) != 0);
 }
 
 int alloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits);
