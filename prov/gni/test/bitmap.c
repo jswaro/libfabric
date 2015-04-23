@@ -96,6 +96,7 @@ void teardown(void)
 #define __test_free_bitmap_clean(bitmap) \
 	do { \
 		int __ret = free_bitmap(bitmap); \
+		assert(__ret == 0); \
 		assert((bitmap)->arr == NULL); \
 		assert((bitmap)->length == 0); \
 		assert((bitmap)->state == GNIX_BITMAP_STATE_FREE); \
@@ -374,6 +375,8 @@ Test(gnix_bitmap, ffz_full_bitmap)
 
 Test(gnix_bitmap, ffz_last_half_set)
 {
+	int i;
+
 	__test_initialize_bitmap_clean(test_bitmap, 64);
 
 	for (i = (test_bitmap->length >> 1); i < test_bitmap->length ; ++i) {
@@ -386,6 +389,8 @@ Test(gnix_bitmap, ffz_last_half_set)
 
 Test(gnix_bitmap, map_fill_0)
 {
+	int i;
+
 	__test_initialize_bitmap_clean(test_bitmap, 64);
 
 	for (i = 0; i < test_bitmap->length; ++i) {
@@ -395,7 +400,7 @@ Test(gnix_bitmap, map_fill_0)
 
 	assert(bitmap_full(test_bitmap));
 
-	fill_bitmap(bitmap, 0);
+	fill_bitmap(test_bitmap, 0);
 
 	assert(bitmap_empty(test_bitmap));
 }
@@ -404,7 +409,7 @@ Test(gnix_bitmap, map_fill_1)
 {
 	__test_initialize_bitmap_clean(test_bitmap, 64);
 
-	fill_bitmap(bitmap, 1);
+	fill_bitmap(test_bitmap, 1);
 
 	assert(bitmap_full(test_bitmap));
 }
