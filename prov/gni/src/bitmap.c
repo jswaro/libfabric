@@ -5,6 +5,8 @@
  *      Author: jswaro
  */
 
+#include <stdlib.h>
+#include <errno.h>
 #include "bitmap.h"
 
 int find_first_zero_bit(gnix_bitmap_t *bitmap)
@@ -13,10 +15,10 @@ int find_first_zero_bit(gnix_bitmap_t *bitmap)
 	gnix_bitmap_value_t value;
 
 	for (i = 0, pos = 0;
-			i < BITMAP_BLOCKS(bitmap->length);
+			i < GNIX_BITMAP_BLOCKS(bitmap->length);
 			++i, pos += GNIX_BITMAP_BUCKET_LENGTH) {
 		/* invert the bits to check for first zero bit */
-		value = ~(__gnix_load_block(&bitmap->arr[i], i));
+		value = ~(__gnix_load_block(bitmap, i));
 
 		if (value != 0) {
 			/* no need to check for errors because we have
@@ -30,13 +32,13 @@ int find_first_zero_bit(gnix_bitmap_t *bitmap)
 	return bitmap->length;
 }
 
-int find_first_set_bit(gnx_bitmap_t *bitmap)
+int find_first_set_bit(gnix_bitmap_t *bitmap)
 {
 	int i, pos;
 	gnix_bitmap_value_t value;
 
 	for (i = 0, pos = 0;
-			i < BITMAP_BLOCKS(bitmap->length);
+			i < GNIX_BITMAP_BLOCKS(bitmap->length);
 			++i, pos += GNIX_BITMAP_BUCKET_LENGTH) {
 		value = __gnix_load_block(&bitmap->arr[i], i);
 
@@ -59,8 +61,8 @@ void fill_bitmap(gnix_bitmap_t *bitmap, int value)
 
 	GNIX_BITMAP_LOCK_ACQUIRE(bitmap);
 
-	for (i = 0; i < BITMAP_BLOCKS(bitmap->length); ++i) {
-		__gnix_set_block(bitmap, index, fill_value);
+	for (i = 0; i < GNIX_BITMAP_BLOCKS(bitmap->length); ++i) {
+		__gnix_set_block(bitmap, i, fill_value);
 	}
 
 	GNIX_BITMAP_LOCK_RELEASE(bitmap);
@@ -85,13 +87,13 @@ int alloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits)
 	}
 
 	bitmap->length = nbits;
-	bitmap->arr = calloc(BITMAP_BLOCKS(nbits), sizeof(uint64_t));
+	bitmap->arr = calloc(GNIX_BITMAP_BLOCKS(nbits), sizeof(uint64_t));
 	if (!bitmap->arr) {
 		GNIX_BITMAP_LOCK_RELEASE(bitmap);
 		return -ENOMEM;
 	}
 
-	for (i = 0; i < BITMAP_BLOCKS(bitmap->length); ++i)
+	for (i = 0; i < GNIX_BITMAP_BLOCKS(bitmap->length); ++i)
 		__gnix_init_block(&bitmap->arr[i]);
 
 	bitmap->state = GNIX_BITMAP_STATE_READY;
@@ -104,7 +106,7 @@ int alloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits)
 int realloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits)
 {
 	gnix_bitmap_block_t *new_allocation;
-	int blocks_to_allocate = BITMAP_BLOCKS(nbits);
+	int blocks_to_allocate = GNIX_BITMAP_BLOCKS(nbits);
 
 	if (bitmap->state != GNIX_BITMAP_STATE_READY)
 		return -EINVAL;
