@@ -199,7 +199,7 @@ static inline int test_and_clear_bit(gnix_bitmap_t *bitmap, uint32_t index)
 
 int alloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits);
 int realloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits);
-void free_bitmap(gnix_bitmap_t *bitmap);
+int free_bitmap(gnix_bitmap_t *bitmap);
 void fill_bitmap(gnix_bitmap_t *bitmap, uint64_t value);
 
 int find_first_zero_bit(gnix_bitmap_t *bitmap);
