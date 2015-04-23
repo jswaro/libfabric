@@ -29,12 +29,16 @@ _gni_files = \
 	prov/gni/src/bitmap.c
 
 if HAVE_CRITERION
-bin_PROGRAMS = gnitest
+bin_PROGRAMS = gnitest bitmaptest
 gnitest_SOURCES = \
 	prov/gni/test/cq.c \
 	prov/gni/test/utils.c \
 	prov/gni/test/wait.c \
 	prov/gni/test/datagram.c
+
+bitmaptest_SOURCES = \
+	prov/gni/test/bitmap.c \
+	prov/gni/test/utils.c
 
 gnitest_LDFLAGS = -static
 gnitest_CPPFLAGS = $(AM_CPPFLAGS)
