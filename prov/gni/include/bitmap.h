@@ -202,4 +202,17 @@ int realloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits);
 void free_bitmap(gnix_bitmap_t *bitmap);
 void fill_bitmap(gnix_bitmap_t *bitmap, uint64_t value);
 
+int find_first_zero_bit(gnix_bitmap_t *bitmap);
+int find_first_set_bit(gnix_bitmap_t *bitmap);
+
+static inline int bitmap_full(gnix_bitmap_t *bitmap)
+{
+	return find_first_zero_bit(bitmap) == bitmap->length;
+}
+
+static inline int bitmap_empty(gnix_bitmap_t *bitmap)
+{
+	return find_first_set_bit(bitmap) == bitmap->length;
+}
+
 #endif /* BITMAP_H_ */
