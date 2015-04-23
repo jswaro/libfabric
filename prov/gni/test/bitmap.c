@@ -408,11 +408,3 @@ Test(gnix_bitmap, map_fill_1)
 
 	assert(bitmap_full(test_bitmap));
 }
-
-
-
-
-
-
-
-
