@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 Cray Inc. All rights reserved.
+ * Copyright (c) 2015 Cray Inc. All rights reserved.
  *
  *  Created on: Apr 23, 2015
  *      Author: jswaro
@@ -18,8 +18,6 @@
 #endif
 
 #include <criterion/criterion.h>
-
-char err_string[1024];
 
 gnix_bitmap_t *test_bitmap = NULL;
 
