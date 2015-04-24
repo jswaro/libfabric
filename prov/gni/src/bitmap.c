@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 Cray Inc. All rights reserved.
+ * Copyright (c) 2015 Cray Inc. All rights reserved.
  *
  *  Created on: Apr 16, 2015
  *      Author: jswaro
