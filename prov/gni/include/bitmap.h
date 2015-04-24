@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 Cray Inc. All rights reserved.
+ * Copyright (c) 2015 Cray Inc. All rights reserved.
  *
  *  Created on: Apr 16, 2015
  *      Author: jswaro
@@ -12,29 +12,29 @@
 #include <pthread.h>
 #include "fi.h"
 
+
 #define GNIX_BITMAP_BUCKET_BITS 6
-#define GNIX_BITMAP_BUCKET_LENGTH (1 << GNIX_BITMAP_BUCKET_BITS)
-#define GNIX_BUCKET_INDEX(index) (index >> GNIX_BITMAP_BUCKET_BITS)
-#define GNIX_BIT_INDEX(index) (index % GNIX_BITMAP_BUCKET_LENGTH)
-#define GNIX_BIT_VALUE(index) (1 << GNIX_BIT_INDEX(index))
+#define GNIX_BITMAP_BUCKET_LENGTH (1ULL << GNIX_BITMAP_BUCKET_BITS)
+#define GNIX_BUCKET_INDEX(index) ((index) >> GNIX_BITMAP_BUCKET_BITS)
+#define GNIX_BIT_INDEX(index) ((index) % GNIX_BITMAP_BUCKET_LENGTH)
+#define GNIX_BIT_VALUE(index) (1ULL << GNIX_BIT_INDEX(index))
 
 #define __PARTIAL_BLOCKS(nbits) (((nbits) % GNIX_BITMAP_BUCKET_LENGTH) ? 1 : 0)
 #define __FULL_BLOCKS(nbits) ((nbits) >> GNIX_BITMAP_BUCKET_BITS)
 #define GNIX_BITMAP_BLOCKS(nbits) \
 	(__FULL_BLOCKS(nbits) + __PARTIAL_BLOCKS(nbits))
 
+typedef uint64_t gnix_bitmap_value_t;
+
 #if HAVE_ATOMICS
 #include <stdatomic.h>
 
 typedef atomic_uint_fast64_t gnix_bitmap_block_t;
-typedef uint64_t gnix_bitmap_value_t;
 #else
 typedef struct atomic_uint64_t {
 	fastlock_t lock;
-	uint64_t val;
+	gnix_bitmap_value_t val;
 } gnix_bitmap_block_t;
-
-typedef uint64_t gnix_bitmap_value_t;
 #endif
 
 typedef enum gnix_bitmap_state {
@@ -62,8 +62,8 @@ typedef struct gnix_bitmap {
 	atomic_fetch_and(&(bitmap)->arr[GNIX_BUCKET_INDEX(bit)], \
 			~GNIX_BIT_VALUE(bit))
 #define __gnix_test_bit(bitmap, bit) \
-	((atomic_load(&(bitmap)->arr[GNIX_BUCKET_INDEX(index)]) \
-			& GNIX_BIT_VALUE(index)) != 0)
+	((atomic_load(&(bitmap)->arr[GNIX_BUCKET_INDEX(bit)]) \
+			& GNIX_BIT_VALUE(bit)) != 0)
 #else
 
 static inline void __gnix_init_block(gnix_bitmap_block_t *block)
@@ -123,7 +123,7 @@ static inline uint64_t __gnix_clear_bit(gnix_bitmap_t *bitmap, int bit)
 static inline int __gnix_test_bit(gnix_bitmap_t *bitmap, int bit)
 {
 	gnix_bitmap_block_t *block = &bitmap->arr[GNIX_BUCKET_INDEX(bit)];
-	uint64_t ret;
+	int ret;
 
 	fastlock_acquire(&block->lock);
 	ret = (block->val & GNIX_BIT_VALUE(bit)) != 0;
