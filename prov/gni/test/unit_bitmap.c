@@ -11,7 +11,7 @@
 #include <stdint.h>
 
 #include <errno.h>
-#include <bitmap.h>
+#include <gnix_bitmap.h>
 
 #ifdef assert
 #undef assert
