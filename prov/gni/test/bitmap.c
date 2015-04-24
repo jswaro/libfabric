@@ -107,7 +107,7 @@ static void __test_free_bitmap_clean(gnix_bitmap_t *bitmap)
 }
 
 /*
- *
+ * Basic functionality tests for the gnix_bitmap_t object
  */
 
 TestSuite(gnix_bitmap,
