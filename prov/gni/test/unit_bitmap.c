@@ -414,3 +414,25 @@ Test(gnix_bitmap, map_fill_1)
 
 	assert(bitmap_full(test_bitmap));
 }
+
+Test(gnix_bitmap, bitmap_load)
+{
+	gnix_bitmap_value_t expected = ~0;
+
+	__test_initialize_bitmap_clean(test_bitmap, 64);
+
+	fill_bitmap(test_bitmap, 1);
+
+	assert(expected == __gnix_load_block(test_bitmap, 0));
+}
+
+Test(gnix_bitmap, bitmap_set)
+{
+	gnix_bitmap_value_t expected = ~0;
+
+	__test_initialize_bitmap_clean(test_bitmap, 64);
+
+	__gnix_set_block(test_bitmap, 0, expected);
+
+	assert(__gnix_load_block(test_bitmap, 0) == expected);
+}
