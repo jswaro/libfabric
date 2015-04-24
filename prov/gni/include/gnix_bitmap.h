@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include <pthread.h>
+#include <errno.h>
 #include "fi.h"
 
 #define GNIX_BITMAP_BUCKET_BITS 6
@@ -264,7 +265,7 @@ int find_first_set_bit(gnix_bitmap_t *bitmap);
  */
 static inline int bitmap_full(gnix_bitmap_t *bitmap)
 {
-	return find_first_zero_bit(bitmap) == bitmap->length;
+	return find_first_zero_bit(bitmap) == -EAGAIN;
 }
 
 /**
@@ -275,7 +276,7 @@ static inline int bitmap_full(gnix_bitmap_t *bitmap)
  */
 static inline int bitmap_empty(gnix_bitmap_t *bitmap)
 {
-	return find_first_set_bit(bitmap) == bitmap->length;
+	return find_first_set_bit(bitmap) == -EAGAIN;
 }
 
 #endif /* BITMAP_H_ */

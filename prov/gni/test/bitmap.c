@@ -337,7 +337,7 @@ Test(gnix_bitmap, ffs_clean_bitmap)
 {
 	__test_initialize_bitmap_clean(test_bitmap, 64);
 
-	assert(find_first_set_bit(test_bitmap) == test_bitmap->length);
+	assert(find_first_set_bit(test_bitmap) == -EAGAIN);
 }
 
 Test(gnix_bitmap, ffs_first_bit_set)
@@ -376,7 +376,7 @@ Test(gnix_bitmap, ffz_full_bitmap)
 		assert(test_bit(test_bitmap, i));
 	}
 
-	assert(find_first_zero_bit(test_bitmap) == test_bitmap->length);
+	assert(find_first_zero_bit(test_bitmap) == -EAGAIN);
 }
 
 Test(gnix_bitmap, ffz_first_half_set)
