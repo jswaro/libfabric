@@ -382,6 +382,7 @@ Test(gnix_bitmap, ffz_full_bitmap)
 Test(gnix_bitmap, ffz_first_half_set)
 {
 	int i;
+
 	__test_initialize_bitmap_clean(test_bitmap, 64);
 
 	for (i = 0; i < 32 ; ++i) {
