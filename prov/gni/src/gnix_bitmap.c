@@ -7,7 +7,7 @@
 
 #include <stdlib.h>
 #include <errno.h>
-#include "bitmap.h"
+#include "gnix_bitmap.h"
 
 int find_first_zero_bit(gnix_bitmap_t *bitmap)
 {

@@ -26,7 +26,7 @@ _gni_files = \
 	prov/gni/src/gnix_cm_nic.c \
 	prov/gni/src/gnix_nic.c \
 	prov/gni/src/gnix_util.c \
-	prov/gni/src/bitmap.c
+	prov/gni/src/gnix_bitmap.c
 
 if HAVE_CRITERION
 bin_PROGRAMS = gnitest
