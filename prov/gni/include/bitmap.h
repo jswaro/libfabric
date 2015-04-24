@@ -43,48 +43,11 @@ typedef enum gnix_bitmap_state {
 	GNIX_BITMAP_STATE_FREE,
 } gnix_bitmap_state_e;
 
-#define GNIX_LOCKLESS_BITMAP 1
-
-#if GNIX_LOCKLESS_BITMAP
-#define GNIX_BITMAP_LOCK_INIT(bitmap) do {} while (0)
-#define GNIX_BITMAP_READ_ACQUIRE(bitmap) do {} while (0)
-#define GNIX_BITMAP_READ_RELEASE(bitmap) do {} while (0)
-#define GNIX_BITMAP_WRITE_ACQUIRE(bitmap) do {} while (0)
-#define GNIX_BITMAP_WRITE_RELEASE(bitmap) do {} while (0)
-#else
-#define GNIX_BITMAP_LOCK_INIT(bitmap) \
-	pthread_rwlock_init(&(bitmap)->lock, NULL)
-#define GNIX_BITMAP_READ_ACQUIRE(bitmap) pthread_rwlock_rdlock(&(bitmap)->lock)
-#define GNIX_BITMAP_READ_RELEASE(bitmap) pthread_rwlock_unlock(&(bitmap)->lock)
-#define GNIX_BITMAP_WRITE_ACQUIRE(bitmap) pthread_rwlock_wrlock(&(bitmap)->lock)
-#define GNIX_BITMAP_WRITE_RELEASE(bitmap) pthread_rwlock_unlock(&(bitmap)->lock)
-#endif
-
 typedef struct gnix_bitmap {
-#if !GNIX_LOCKLESS_BITMAP
-	pthread_rwlock_t lock;
-#endif
 	gnix_bitmap_state_e state;
 	uint32_t length;
 	gnix_bitmap_block_t *arr;
 } gnix_bitmap_t;
-
-#define READ_SAFE_RETURN(bitmap, expr) \
-	({ \
-		int __ret; \
-		GNIX_BITMAP_READ_ACQUIRE(bitmap); \
-		__ret = (expr); \
-		GNIX_BITMAP_READ_RELEASE(bitmap); \
-		__ret; \
-	})
-
-#define READ_SAFE_EXEC(bitmap, func) \
-	do { \
-		GNIX_BITMAP_READ_ACQUIRE(bitmap); \
-		func; \
-		GNIX_BITMAP_READ_RELEASE(bitmap); \
-	} while (0)
-
 
 #if HAVE_ATOMICS
 
@@ -172,29 +135,27 @@ static inline int __gnix_test_bit(gnix_bitmap_t *bitmap, int bit)
 
 static inline int test_bit(gnix_bitmap_t *bitmap, uint32_t index)
 {
-	return READ_SAFE_RETURN(bitmap, __gnix_test_bit(bitmap, index));
+	return __gnix_test_bit(bitmap, index);
 }
 
 static inline void set_bit(gnix_bitmap_t *bitmap, uint32_t index)
 {
-	READ_SAFE_EXEC(bitmap, __gnix_set_bit(bitmap, index));
+	__gnix_set_bit(bitmap, index);
 }
 
 static inline void clear_bit(gnix_bitmap_t *bitmap, uint32_t index)
 {
-	READ_SAFE_EXEC(bitmap, __gnix_clear_bit(bitmap, index));
+	__gnix_clear_bit(bitmap, index);
 }
 
 static inline int test_and_set_bit(gnix_bitmap_t *bitmap, uint32_t index)
 {
-	return READ_SAFE_RETURN(bitmap,
-			(__gnix_set_bit(bitmap, index) & GNIX_BIT_VALUE(index)) != 0);
+	return (__gnix_set_bit(bitmap, index) & GNIX_BIT_VALUE(index)) != 0;
 }
 
 static inline int test_and_clear_bit(gnix_bitmap_t *bitmap, uint32_t index)
 {
-	return READ_SAFE_RETURN(bitmap,
-			(__gnix_clear_bit(bitmap, index) & GNIX_BIT_VALUE(index)) != 0);
+	return (__gnix_clear_bit(bitmap, index) & GNIX_BIT_VALUE(index)) != 0;
 }
 
 int alloc_bitmap(gnix_bitmap_t *bitmap, uint32_t nbits);
