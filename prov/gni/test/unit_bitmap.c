@@ -20,8 +20,19 @@
 #include <criterion/criterion.h>
 
 gnix_bitmap_t *test_bitmap = NULL;
-
 int call_free_bitmap = 0;
+
+void calculate_time_difference(struct timeval *start, struct timeval *end,
+		int *secs_out, int *usec_out)
+{
+	*secs_out = end->tv_sec - start->tv_sec;
+	if (end->tv_usec < start->tv_usec) {
+		*secs_out = *secs_out - 1;
+		*usec_out = (1000000 + end->tv_usec) - start->tv_usec;
+	} else {
+		*usec_out = end->tv_usec - start->tv_usec;
+	}
+}
 
 void __gnix_bitmap_test_setup(void)
 {
@@ -431,3 +442,57 @@ Test(gnix_bitmap, bitmap_set)
 
 	assert(__gnix_load_block(test_bitmap, 0) == expected);
 }
+
+
+Test(gnix_bitmap, performance_set_test)
+{
+	int i, j;
+	int secs, usec;
+	struct timeval start, end;
+
+	__test_initialize_bitmap_clean(test_bitmap, 8192);
+
+	gettimeofday(&start, 0);
+	for (i = 0; i < 100000; ++i) {
+		j = i % 8192;
+		set_bit(test_bitmap, j);
+		assert(test_bit(test_bitmap, j));
+		clear_bit(test_bitmap, j);
+		assert(!test_bit(test_bitmap, j));
+	}
+	gettimeofday(&end, 0);
+
+	calculate_time_difference(&start, &end, &secs, &usec);
+
+	assert(bitmap_empty(test_bitmap));
+
+	expect(secs < 1);
+}
+
+Test(gnix_bitmap, performance_set_test_random)
+{
+	int i, j;
+	int secs, usec;
+	struct timeval start, end;
+
+	srand(time(NULL));
+
+	__test_initialize_bitmap_clean(test_bitmap, 8192);
+
+	gettimeofday(&start, 0);
+	for (i = 0; i < 100000; ++i) {
+		j = rand() % 8192;
+		set_bit(test_bitmap, j);
+		assert(test_bit(test_bitmap, j));
+		clear_bit(test_bitmap, j);
+		assert(!test_bit(test_bitmap, j));
+	}
+	gettimeofday(&end, 0);
+
+	calculate_time_difference(&start, &end, &secs, &usec);
+
+	assert(bitmap_empty(test_bitmap));
+
+	expect(secs < 1);
+}
+
