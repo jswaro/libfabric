@@ -5,27 +5,21 @@
  *      Author: jswaro
  */
 
-#include <stdio.h>
 #include <stdlib.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <stdint.h>
+
 #include <errno.h>
-#include <getopt.h>
-#include <poll.h>
-#include <time.h>
-#include <string.h>
+#include <bitmap.h>
 
-#include <rdma/fabric.h>
-#include <rdma/fi_domain.h>
-#include <rdma/fi_errno.h>
-#include <rdma/fi_endpoint.h>
-#include <rdma/fi_cm.h>
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <inttypes.h>
+#ifdef assert
+#undef assert
+#endif
 
 #include <criterion/criterion.h>
 
-#include <bitmap.h>
+char err_string[1024];
 
 gnix_bitmap_t *test_bitmap = NULL;
 
@@ -55,51 +49,53 @@ void __gnix_bitmap_test_teardown(void)
 }
 
 
-#define __test_clean_bitmap_state(bitmap, _length, _state) \
-	do { \
-		assert((bitmap)->arr != NULL); \
-		assert((bitmap)->length == (_length)); \
-		assert((bitmap)->state == (_state)); \
-	} while (0)
+static void __test_clean_bitmap_state(gnix_bitmap_t *bitmap,
+		int _length, gnix_bitmap_state_e _state)
+{
+	assert(bitmap->arr != NULL);
+	assert(bitmap->length == _length);
+	assert(bitmap->state == _state);
+}
 
-#define __test_initialize_bitmap(bitmap, bits) \
-	do { \
-		int __ret; \
-		__ret = alloc_bitmap(bitmap, bits); \
-		assert(__ret == 0); \
-		__test_clean_bitmap_state(bitmap, bits, \
-				GNIX_BITMAP_STATE_READY); \
-	} while (0)
+static void __test_initialize_bitmap(gnix_bitmap_t *bitmap, int bits)
+{
+	int ret = alloc_bitmap(bitmap, bits);
 
-#define __test_initialize_bitmap_clean(bitmap, bits) \
-	do { \
-		__test_initialize_bitmap(bitmap, bits); \
-		assert(bitmap_empty(bitmap)); \
-	} while (0)
+	assert(ret == 0);
+	__test_clean_bitmap_state(bitmap, bits, GNIX_BITMAP_STATE_READY);
+}
 
-#define __test_realloc_bitmap(bitmap, bits) \
-	do { \
-		int __ret; \
-		__ret = realloc_bitmap(bitmap, bits); \
-		assert(__ret == 0); \
-		__test_clean_bitmap_state(bitmap, bits, \
-				GNIX_BITMAP_STATE_READY); \
-	} while (0)
+static void __test_initialize_bitmap_clean(gnix_bitmap_t *bitmap, int bits)
+{
+	__test_initialize_bitmap(bitmap, bits);
+	assert(bitmap_empty(bitmap));
+}
 
-#define __test_realloc_bitmap_clean(bitmap, initial, next) \
-	do { \
-		__test_initialize_bitmap(bitmap, initial); \
-		__test_realloc_bitmap(bitmap, next); \
-		assert(bitmap_empty(test_bitmap)); \
-	} while (0)
+static void __test_realloc_bitmap(gnix_bitmap_t *bitmap, int bits)
+{
+	int ret = realloc_bitmap(bitmap, bits);
 
-#define __test_free_bitmap_clean(bitmap) \
-	do { \
-		assert(free_bitmap(bitmap) == 0); \
-		assert((bitmap)->arr == NULL); \
-		assert((bitmap)->length == 0); \
-		assert((bitmap)->state == GNIX_BITMAP_STATE_FREE); \
-	} while (0)
+	assert(ret == 0);
+	__test_clean_bitmap_state(bitmap, bits,	GNIX_BITMAP_STATE_READY);
+}
+
+static void __test_realloc_bitmap_clean(gnix_bitmap_t *bitmap, int initial,
+		int next)
+{
+	__test_initialize_bitmap(bitmap, initial);
+	__test_realloc_bitmap(bitmap, next);
+	assert(bitmap_empty(bitmap));
+}
+
+static void __test_free_bitmap_clean(gnix_bitmap_t *bitmap)
+{
+	int ret = free_bitmap(bitmap);
+
+	assert(ret == 0);
+	assert(bitmap->arr == NULL);
+	assert(bitmap->length == 0);
+	assert(bitmap->state == GNIX_BITMAP_STATE_FREE);
+}
 
 /*
  *
@@ -262,7 +258,7 @@ Test(gnix_bitmap, bit_set_test_fail)
 
 	set_bit(test_bitmap, 1);
 
-	assert(test_bit(test_bitmap, 0));
+	assert(!test_bit(test_bitmap, 0));
 }
 
 Test(gnix_bitmap, bit_set_clear)
@@ -332,7 +328,7 @@ Test(gnix_bitmap, ffs_clean_bitmap)
 {
 	__test_initialize_bitmap_clean(test_bitmap, 64);
 
-	assert(find_first_set_bit(bitmap) == test_bitmap->length);
+	assert(find_first_set_bit(test_bitmap) == test_bitmap->length);
 }
 
 Test(gnix_bitmap, ffs_first_bit_set)
@@ -341,7 +337,7 @@ Test(gnix_bitmap, ffs_first_bit_set)
 
 	set_bit(test_bitmap, 0);
 
-	assert(find_first_set_bit(bitmap) == 0);
+	assert(find_first_set_bit(test_bitmap) == 0);
 }
 
 Test(gnix_bitmap, ffs_seventeen_set)
@@ -350,14 +346,14 @@ Test(gnix_bitmap, ffs_seventeen_set)
 
 	set_bit(test_bitmap, 17);
 
-	assert(find_first_set_bit(bitmap) == 17);
+	assert(find_first_set_bit(test_bitmap) == 17);
 }
 
 Test(gnix_bitmap, ffz_clean_bitmap)
 {
 	__test_initialize_bitmap_clean(test_bitmap, 64);
 
-	assert(find_first_set_bit(bitmap) == 0);
+	assert(find_first_zero_bit(test_bitmap) == 0);
 }
 
 Test(gnix_bitmap, ffz_full_bitmap)
@@ -371,21 +367,22 @@ Test(gnix_bitmap, ffz_full_bitmap)
 		assert(test_bit(test_bitmap, i));
 	}
 
-	assert(find_first_set_bit(bitmap) == test_bitmap->length);
+	assert(find_first_zero_bit(test_bitmap) == test_bitmap->length);
 }
 
-Test(gnix_bitmap, ffz_last_half_set)
+Test(gnix_bitmap, ffz_first_half_set)
 {
 	int i;
-
 	__test_initialize_bitmap_clean(test_bitmap, 64);
 
-	for (i = (test_bitmap->length >> 1); i < test_bitmap->length ; ++i) {
+	for (i = 0; i < 32 ; ++i) {
 		set_bit(test_bitmap, i);
 		assert(test_bit(test_bitmap, i));
 	}
 
-	assert(find_first_set_bit(bitmap) == (test_bitmap->length >> 1));
+	expect(test_bitmap->length == 64);
+	expect(i == 32);
+	assert(find_first_zero_bit(test_bitmap) == i);
 }
 
 Test(gnix_bitmap, map_fill_0)
