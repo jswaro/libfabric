@@ -44,7 +44,6 @@ void __gnix_hashtable_test_setup_bare(void)
 {
 	assert(test_ht == NULL);
 	test_ht = (gnix_hashtable_t *) calloc(1, sizeof(gnix_hashtable_t));
-	memset(test_ht, 0, sizeof(gnix_hashtable_t));
 	assert(test_ht != NULL);
 }
 
@@ -59,7 +58,6 @@ void __gnix_hashtable_test_teardown_bare(void)
 void __gnix_hashtable_test_uninitialized(void)
 {
 	assert(test_ht->ht_state == GNIX_HT_STATE_UNINITIALIZED);
-	assert(atomic_get(&test_ht->ht_elements) == 0);
 	assert(test_ht->ht_size == 0);
 	assert(test_ht->ht_tbl == NULL);
 }
@@ -117,28 +115,27 @@ void __gnix_hashtable_test_teardown(void)
  * Basic functionality tests for the gnix_hashtable_t object
  */
 
-TestSuite(gnix_hashtable,
+TestSuite(gnix_hashtable_basic,
+		.init = __gnix_hashtable_test_setup_bare,
+		.fini = __gnix_hashtable_test_teardown_bare);
+
+TestSuite(gnix_hashtable_advanced,
 		.init = __gnix_hashtable_test_setup,
 		.fini = __gnix_hashtable_test_teardown);
 
-Test(gnix_hashtable, uninitialized,
-		.init = __gnix_hashtable_test_setup_bare,
-		.fini = __gnix_hashtable_test_teardown_bare)
+
+Test(gnix_hashtable_basic, uninitialized)
 {
 	__gnix_hashtable_test_uninitialized();
 }
 
-/*
-Test(gnix_hashtable, initialize_ht,
-		.init = __gnix_hashtable_test_setup_bare,
-		.fini = __gnix_hashtable_test_teardown_bare)
+
+Test(gnix_hashtable_basic, initialize_ht)
 {
 	__gnix_hashtable_initialize();
 }
 
-Test(gnix_hashtable, err_initialize_twice,
-		.init = __gnix_hashtable_test_setup_bare,
-		.fini = __gnix_hashtable_test_teardown_bare)
+Test(gnix_hashtable_basic, err_initialize_twice)
 {
 	int ret;
 
@@ -149,9 +146,7 @@ Test(gnix_hashtable, err_initialize_twice,
 	__gnix_hashtable_test_initialized();
 }
 
-Test(gnix_hashtable, err_destroy_uninitialized,
-		.init = __gnix_hashtable_test_setup_bare,
-		.fini = __gnix_hashtable_test_teardown_bare)
+Test(gnix_hashtable_basic, err_destroy_uninitialized)
 {
 	int ret;
 
@@ -161,15 +156,13 @@ Test(gnix_hashtable, err_destroy_uninitialized,
 	__gnix_hashtable_test_uninitialized();
 }
 
-Test(gnix_hashtable, destroy,
-		.init = __gnix_hashtable_test_setup_bare,
-		.fini = __gnix_hashtable_test_teardown_bare)
+Test(gnix_hashtable_basic, destroy)
 {
 	__gnix_hashtable_initialize();
 
 	__gnix_hashtable_destroy();
 }
-
+/*
 Test(gnix_hashtable, destroy_twice,
 		.init = __gnix_hashtable_test_setup_bare,
 		.fini = __gnix_hashtable_test_teardown_bare)
