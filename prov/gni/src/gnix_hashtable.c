@@ -7,9 +7,22 @@
 
 #include <stdlib.h>
 #include <errno.h>
+#include <stdio.h>
+
+#if 0
+#define DBG(fmt, a...) fprintf(stderr, "[%s:%i] " fmt "\n", __func__, \
+		__LINE__, ##a)
+#else
+#define DBG(fmt, a...) do {} while (0)
+#endif
 
 #include <gnix_hashtable.h>
 
+static inline void __gnix_ht_init_list_head(gnix_ht_list_head_t *lh)
+{
+	lh->head = NULL;
+	pthread_rwlock_init(&lh->lh_lock, NULL);
+}
 
 static inline gnix_ht_key_t gnix_hash_func(
 		gnix_hashtable_t *ht,
@@ -40,7 +53,8 @@ static inline void __gnix_ht_lookup_key(
 	}
 }
 
-static inline void *gnix_ht_lookup_key(gnix_ht_list_head_t *lh,
+static inline void *gnix_ht_lookup_key(
+		gnix_ht_list_head_t *lh,
 		gnix_ht_key_t key)
 {
 	gnix_ht_entry_t *prev, *iter;
@@ -55,7 +69,8 @@ static inline void *gnix_ht_lookup_key(gnix_ht_list_head_t *lh,
 	return iter->entry;
 }
 
-static inline void __gnix_ht_destroy_list(gnix_hashtable_t *ht,
+static inline void __gnix_ht_destroy_list(
+		gnix_hashtable_t *ht,
 		gnix_ht_list_head_t *lh)
 {
 	gnix_ht_entry_t *iter, *next;
@@ -159,7 +174,8 @@ static inline int __gnix_ht_remove_list(
 	return 0;
 }
 
-static inline void __gnix_ht_rehash_list(gnix_hashtable_t *ht,
+static inline void __gnix_ht_rehash_list(
+		gnix_hashtable_t *ht,
 		gnix_ht_list_head_t *list)
 {
 	gnix_ht_entry_t *iter, *current;
@@ -186,8 +202,10 @@ static inline void __gnix_ht_rehash_list(gnix_hashtable_t *ht,
 	}
 }
 
-static inline void __gnix_ht_rehash_table(gnix_hashtable_t *ht,
-		gnix_ht_list_head_t *ht_tbl, int old_length)
+static inline void __gnix_ht_rehash_table(
+		gnix_hashtable_t *ht,
+		gnix_ht_list_head_t *ht_tbl,
+		int old_length)
 {
 	int i;
 
@@ -220,8 +238,7 @@ static inline void __gnix_ht_resize_hashtable(gnix_hashtable_t *ht)
 	}
 
 	for (i = 0; i < new_size; ++i) {
-		pthread_rwlock_init(&ht->ht_tbl[i].lh_lock, NULL);
-		ht->ht_tbl[i].head = NULL;
+		__gnix_ht_init_list_head(&new_table[i]);
 	}
 
 	old_table = ht->ht_tbl;
@@ -246,25 +263,29 @@ int gnix_ht_init(gnix_hashtable_t *ht)
 	pthread_rwlock_wrlock(&ht->ht_lock);
 
 	ht->ht_size = __GNIX_HT_INITIAL_SIZE;
-	ht->ht_tbl = calloc(ht->ht_size, sizeof(gnix_ht_list_head_t *));
+	ht->ht_tbl = calloc(ht->ht_size, sizeof(gnix_ht_list_head_t));
 	if (!ht->ht_tbl) {
 		pthread_rwlock_unlock(&ht->ht_lock);
 		ht->ht_size = 0;
 		return -ENOMEM;
 	}
 
-	for (i = 0; i < ht->ht_size; ++i) {
-		pthread_rwlock_init(&ht->ht_tbl[i].lh_lock, NULL);
-		ht->ht_tbl[i].head = NULL;
-	}
+	for (i = 0; i < ht->ht_size; ++i)
+		__gnix_ht_init_list_head(&ht->ht_tbl[i]);
 
 	if (ht->ht_state == GNIX_HT_STATE_UNINITIALIZED) {
 		atomic_initialize(&ht->ht_elements, 0);
+		atomic_initialize(&ht->ht_collisions, 0);
+		atomic_initialize(&ht->ht_ops, 0);
 	} else {
 		atomic_set(&ht->ht_elements, 0);
+		atomic_set(&ht->ht_collisions, 0);
+		atomic_set(&ht->ht_ops, 0);
 	}
 
 	ht->ht_state = GNIX_HT_STATE_READY;
+
+	DBG("ht=%p ht->ht_tbl=%p", ht, ht->ht_tbl);
 
 	pthread_rwlock_unlock(&ht->ht_lock);
 	return 0;
@@ -279,6 +300,8 @@ int gnix_ht_destroy(gnix_hashtable_t *ht)
 
 	pthread_rwlock_wrlock(&ht->ht_lock);
 
+	DBG("ht=%p ht->ht_tbl=%p", ht, ht->ht_tbl);
+
 	for (i = 0; i < ht->ht_size; ++i) {
 		__gnix_ht_destroy_list(ht, &ht->ht_tbl[i]);
 	}
@@ -287,6 +310,8 @@ int gnix_ht_destroy(gnix_hashtable_t *ht)
 	ht->ht_tbl = NULL;
 
 	ht->ht_size = 0;
+	atomic_set(&ht->ht_collisions, 0);
+	atomic_set(&ht->ht_ops, 0);
 	atomic_set(&ht->ht_elements, 0);
 	ht->ht_state = GNIX_HT_STATE_DEAD;
 
@@ -295,7 +320,10 @@ int gnix_ht_destroy(gnix_hashtable_t *ht)
 	return 0;
 }
 
-int gnix_ht_insert(gnix_hashtable_t *ht, gnix_ht_key_t key, void *entry)
+int gnix_ht_insert(
+		gnix_hashtable_t *ht,
+		gnix_ht_key_t key,
+		void *entry)
 {
 	int bucket;
 	int ret;
@@ -340,7 +368,9 @@ int gnix_ht_insert(gnix_hashtable_t *ht, gnix_ht_key_t key, void *entry)
 	return ret;
 }
 
-int gnix_ht_remove(gnix_hashtable_t *ht, gnix_ht_key_t key)
+int gnix_ht_remove(
+		gnix_hashtable_t *ht,
+		gnix_ht_key_t key)
 {
 	int bucket;
 	int ret;
@@ -359,7 +389,9 @@ int gnix_ht_remove(gnix_hashtable_t *ht, gnix_ht_key_t key)
 	return ret;
 }
 
-void *gnix_ht_lookup(gnix_hashtable_t *ht, gnix_ht_key_t key)
+void *gnix_ht_lookup(
+		gnix_hashtable_t *ht,
+		gnix_ht_key_t key)
 {
 	int bucket;
 	void *ret;
