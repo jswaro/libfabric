@@ -11,7 +11,6 @@
 
 #include <gnix_hashtable.h>
 
-
 #define gnix_dlist_for_each_entry(iterator, head, type, member) \
 	for (iterator = container_of((head)->next, type, member); \
 			&iterator->member != (head); \
