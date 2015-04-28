@@ -27,7 +27,8 @@ _gni_files = \
 	prov/gni/src/gnix_cm_nic.c \
 	prov/gni/src/gnix_nic.c \
 	prov/gni/src/gnix_util.c \
-	prov/gni/src/gnix_bitmap.c
+	prov/gni/src/gnix_bitmap.c \
+	prov/gni/src/gnix_hashtable.c
 
 if HAVE_CRITERION
 bin_PROGRAMS = gnitest
@@ -37,7 +38,8 @@ gnitest_SOURCES = \
 	prov/gni/test/wait.c \
 	prov/gni/test/datagram.c \
 	prov/gni/test/bitmap.c \
-	prov/gni/test/queue.c
+	prov/gni/test/queue.c \
+	prov/gni/test/hashtable.c
 
 gnitest_LDFLAGS = -static
 gnitest_CPPFLAGS = $(AM_CPPFLAGS)
