@@ -46,7 +46,7 @@ static inline int atomic_sub(atomic_t *atomic, int val)
 
 	ATOMIC_IS_INITIALIZED(atomic);
 	fastlock_acquire(&atomic->lock);
-	atomic_val += val;
+	atomic->val += val;
 	v = atomic->val;
 	fastlock_release(&atomic->lock);
 	return v;
@@ -93,7 +93,7 @@ int gnix_ht_init(gnix_hashtable_t *ht);
 int gnix_ht_destroy(gnix_hashtable_t *ht);
 
 int gnix_ht_insert(gnix_hashtable_t *ht, gnix_ht_key_t key, void *entry);
-int gnix_ht_remove(gnix_hashtable_t *ht, gnix_ht_key_t key, void *entry);
+int gnix_ht_remove(gnix_hashtable_t *ht, gnix_ht_key_t key);
 void *gnix_ht_lookup(gnix_hashtable_t *ht, gnix_ht_key_t key);
 
 int gnix_ht_empty(gnix_hashtable_t *ht);

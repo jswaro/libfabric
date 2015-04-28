@@ -6,8 +6,10 @@
  */
 
 #include <stdlib.h>
-#include <gnix_hashtable.h>
 #include <errno.h>
+
+#include <gnix_hashtable.h>
+
 
 static inline gnix_ht_key_t gnix_hash_func(
 		gnix_hashtable_t *ht,
@@ -33,7 +35,7 @@ static inline void __gnix_ht_lookup_key(
 			return;
 		}
 
-		prev = iter;
+		*prev = iter;
 		iter = iter->next;
 	}
 }
@@ -44,8 +46,8 @@ static inline void *gnix_ht_lookup_key(gnix_ht_list_head_t *lh,
 	gnix_ht_entry_t *prev, *iter;
 
 	pthread_rwlock_rdlock(&lh->lh_lock);
-	__gnix_ht_lookup_key(&ht->ht_tbl[bucket], key, &prev, &iter);
-	pthread_rwlock_rdunlock(&lh->lh_lock);
+	__gnix_ht_lookup_key(lh, key, &prev, &iter);
+	pthread_rwlock_unlock(&lh->lh_lock);
 
 	if (!iter)
 		return NULL;
@@ -124,7 +126,7 @@ static inline int __gnix_ht_insert_list_locked(
 
 	pthread_rwlock_wrlock(&lh->lh_lock);
 	ret = __gnix_ht_insert_list(lh, entry, collisions);
-	pthread_rwlock_wrunlock(&lh->lh_lock);
+	pthread_rwlock_unlock(&lh->lh_lock);
 
 	return ret;
 }
@@ -143,10 +145,10 @@ static inline int __gnix_ht_remove_list(
 	} else if (iter && !prev) {
 		lh->head = iter->next;
 	} else {
-		pthread_rwlock_wrunlock(&lh->lh_lock);
+		pthread_rwlock_unlock(&lh->lh_lock);
 		return -ENOENT;
 	}
-	pthread_rwlock_wrunlock(&lh->lh_lock);
+	pthread_rwlock_unlock(&lh->lh_lock);
 
 	iter->entry = NULL;
 	iter->key = 0;
@@ -179,7 +181,7 @@ static inline void __gnix_ht_rehash_list(gnix_hashtable_t *ht,
 
 		current->next = NULL;
 
-		ret = __gnix_ht_insert_list(ht->ht_tbl[bucket],
+		ret = __gnix_ht_insert_list(&ht->ht_tbl[bucket],
 				current, &collisions);
 	}
 }
@@ -207,18 +209,18 @@ static inline void __gnix_ht_resize_hashtable(gnix_hashtable_t *ht)
 	 */
 	pthread_rwlock_wrlock(&ht->ht_lock);
 	if (ht->ht_size != old_size) {
-		pthread_rwlock_wrunlock(&ht->ht_lock);
+		pthread_rwlock_unlock(&ht->ht_lock);
 		return;
 	}
 
 	new_table = calloc(new_size, sizeof(gnix_ht_list_head_t));
 	if (!new_table) {
-		pthread_rwlock_wrunlock(&ht->ht_lock);
+		pthread_rwlock_unlock(&ht->ht_lock);
 		return;
 	}
 
 	for (i = 0; i < new_size; ++i) {
-		pthread_rwlock_init(&ht->ht_tbl[i].lh_lock);
+		pthread_rwlock_init(&ht->ht_tbl[i].lh_lock, NULL);
 		ht->ht_tbl[i].head = NULL;
 	}
 
@@ -228,7 +230,7 @@ static inline void __gnix_ht_resize_hashtable(gnix_hashtable_t *ht)
 
 	__gnix_ht_rehash_table(ht, old_table, old_size);
 
-	pthread_rwlock_wrunlock(&ht->ht_lock);
+	pthread_rwlock_unlock(&ht->ht_lock);
 }
 
 int gnix_ht_init(gnix_hashtable_t *ht)
@@ -239,24 +241,24 @@ int gnix_ht_init(gnix_hashtable_t *ht)
 		return -EINVAL;
 
 	if (ht->ht_state != GNIX_HT_STATE_DEAD)
-		pthread_rwlock_init(&ht->ht_lock);
+		pthread_rwlock_init(&ht->ht_lock, NULL);
 
 	pthread_rwlock_wrlock(&ht->ht_lock);
 
 	ht->ht_size = __GNIX_HT_INITIAL_SIZE;
 	ht->ht_tbl = calloc(ht->ht_size, sizeof(gnix_ht_list_head_t *));
 	if (!ht->ht_tbl) {
-		pthread_rwlock_wrunlock(&ht->ht_lock);
+		pthread_rwlock_unlock(&ht->ht_lock);
 		ht->ht_size = 0;
 		return -ENOMEM;
 	}
 
 	for (i = 0; i < ht->ht_size; ++i) {
-		pthread_rwlock_init(&ht->ht_tbl[i].lh_lock);
+		pthread_rwlock_init(&ht->ht_tbl[i].lh_lock, NULL);
 		ht->ht_tbl[i].head = NULL;
 	}
 
-	if (ht->ht_state == GNIX_BITMAP_STATE_UNINITIALIZED) {
+	if (ht->ht_state == GNIX_HT_STATE_UNINITIALIZED) {
 		atomic_initialize(&ht->ht_elements, 0);
 	} else {
 		atomic_set(&ht->ht_elements, 0);
@@ -264,7 +266,7 @@ int gnix_ht_init(gnix_hashtable_t *ht)
 
 	ht->ht_state = GNIX_HT_STATE_READY;
 
-	pthread_rwlock_wrunlock(&ht->ht_lock);
+	pthread_rwlock_unlock(&ht->ht_lock);
 	return 0;
 }
 
@@ -285,10 +287,10 @@ int gnix_ht_destroy(gnix_hashtable_t *ht)
 	ht->ht_tbl = NULL;
 
 	ht->ht_size = 0;
-	atomic_set(ht->ht_elements, 0);
+	atomic_set(&ht->ht_elements, 0);
 	ht->ht_state = GNIX_HT_STATE_DEAD;
 
-	pthread_rwlock_wrunlock(&ht->ht_lock);
+	pthread_rwlock_unlock(&ht->ht_lock);
 
 	return 0;
 }
@@ -297,7 +299,8 @@ int gnix_ht_insert(gnix_hashtable_t *ht, gnix_ht_key_t key, void *entry)
 {
 	int bucket;
 	int ret;
-	int collisions, hits, ops;
+	int collisions, ops;
+	int hits = 0;
 
 	gnix_ht_entry_t *list_entry;
 
@@ -316,7 +319,7 @@ int gnix_ht_insert(gnix_hashtable_t *ht, gnix_ht_key_t key, void *entry)
 	bucket = gnix_hash_func(ht, key);
 	ret = __gnix_ht_insert_list_locked(&ht->ht_tbl[bucket],
 			list_entry, &hits);
-	pthread_rwlock_rdunlock(&ht->ht_lock);
+	pthread_rwlock_unlock(&ht->ht_lock);
 
 	if (ht->ht_size < __GNIX_HT_MAXIMUM_SIZE) {
 		collisions = atomic_add(&ht->ht_collisions, hits);
@@ -341,7 +344,6 @@ int gnix_ht_remove(gnix_hashtable_t *ht, gnix_ht_key_t key)
 {
 	int bucket;
 	int ret;
-	int resize;
 
 	if (ht->ht_state != GNIX_HT_STATE_READY)
 		return -EINVAL;
@@ -349,7 +351,7 @@ int gnix_ht_remove(gnix_hashtable_t *ht, gnix_ht_key_t key)
 	pthread_rwlock_rdlock(&ht->ht_lock);
 	bucket = gnix_hash_func(ht, key);
 	ret = __gnix_ht_remove_list(&ht->ht_tbl[bucket], key);
-	pthread_rwlock_rdunlock(&ht->ht_lock);
+	pthread_rwlock_unlock(&ht->ht_lock);
 
 	if (ret == 0)
 		atomic_dec(&ht->ht_elements);
@@ -361,21 +363,20 @@ void *gnix_ht_lookup(gnix_hashtable_t *ht, gnix_ht_key_t key)
 {
 	int bucket;
 	void *ret;
-	gnix_ht_entry_t *prev, *iter;
 
 	if (ht->ht_state != GNIX_HT_STATE_READY)
-		return -EINVAL;
+		return NULL;
 
 	pthread_rwlock_rdlock(&ht->ht_lock);
 	bucket = gnix_hash_func(ht, key);
 
 	ret = gnix_ht_lookup_key(&ht->ht_tbl[bucket], key);
-	pthread_rwlock_rdunlock(&ht->ht_lock);
+	pthread_rwlock_unlock(&ht->ht_lock);
 
 	return ret;
 }
 
 int gnix_ht_empty(gnix_hashtable_t *ht)
 {
-	return atomic_get(ht->ht_elements) == 0;
+	return atomic_get(&ht->ht_elements) == 0;
 }
