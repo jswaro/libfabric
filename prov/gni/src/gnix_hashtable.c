@@ -237,7 +237,7 @@ int gnix_ht_init(gnix_hashtable_t *ht)
 {
 	int i;
 
-	if (ht->ht_state == GNIX_HT_STATE_UNINITIALIZED)
+	if (ht->ht_state == GNIX_HT_STATE_READY)
 		return -EINVAL;
 
 	if (ht->ht_state != GNIX_HT_STATE_DEAD)
