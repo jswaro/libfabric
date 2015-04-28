@@ -37,7 +37,7 @@
 #include <pthread.h>
 
 #include "fi.h"
-#include "fi_list.h"
+#include "prov/gni/ccan/list.h"
 
 #if HAVE_ATOMICS
 static inline int atomic_add(atomic_t *atomic, int val)
@@ -95,14 +95,14 @@ typedef enum gnix_ht_state {
 } gnix_ht_state_e;
 
 typedef struct gnix_ht_entry {
-	struct dlist_entry entry;
+	struct list_node entry;
 	gnix_ht_key_t key;
 	void *value;
 } gnix_ht_entry_t;
 
 typedef struct gnix_ht_list_head {
 	pthread_rwlock_t lh_lock;
-	struct dlist_entry bucket_list;
+	struct list_head bucket_list;
 } gnix_ht_list_head_t;
 
 typedef struct gnix_hashtable {

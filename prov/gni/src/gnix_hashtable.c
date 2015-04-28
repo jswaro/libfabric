@@ -36,23 +36,9 @@
 
 #include <gnix_hashtable.h>
 
-#define gnix_dlist_for_each_entry(iterator, head, type, member) \
-	for (iterator = container_of((head)->next, type, member); \
-			&iterator->member != (head); \
-			iterator = container_of(iterator->member.next, \
-					type, member))
-
-#define gnix_dlist_for_each_entry_safe(iterator, tmp, head, type, member) \
-	for (iterator = container_of((head)->next, type, member), \
-			tmp = container_of(iterator->member.next, \
-					type, member); \
-			&iterator->member != (head); \
-			iterator = tmp, tmp = container_of(tmp->member.next, \
-					type, member)) \
-
 static inline void __gnix_ht_delete_entry(gnix_ht_entry_t *ht_entry)
 {
-	dlist_remove(&ht_entry->entry);
+	list_del(&ht_entry->entry);
 
 	ht_entry->value = NULL;
 	ht_entry->key = 0;
@@ -61,7 +47,7 @@ static inline void __gnix_ht_delete_entry(gnix_ht_entry_t *ht_entry)
 
 static inline void __gnix_ht_init_list_head(gnix_ht_list_head_t *lh)
 {
-	dlist_init(&lh->bucket_list);
+	list_head_init(&lh->bucket_list);
 	pthread_rwlock_init(&lh->lh_lock, NULL);
 }
 
@@ -79,14 +65,14 @@ static inline gnix_ht_entry_t *__gnix_ht_lookup_key(
 {
 	gnix_ht_entry_t *ht_entry;
 
-	if (dlist_empty(&lh->bucket_list))
+
+	if (list_empty(&lh->bucket_list))
 		return NULL;
 
 	if (prev)
 		*prev = NULL;
 
-	gnix_dlist_for_each_entry(ht_entry, &lh->bucket_list,
-			gnix_ht_entry_t, entry) {
+	list_for_each(&lh->bucket_list, ht_entry, entry) {
 
 		if (ht_entry->key == key)
 			return ht_entry;
@@ -121,9 +107,7 @@ static inline void __gnix_ht_destroy_list(
 	gnix_ht_entry_t *ht_entry, *iter;
 	int entries_freed = 0;
 
-	gnix_dlist_for_each_entry_safe(ht_entry, iter, &lh->bucket_list,
-			gnix_ht_entry_t, entry) {
-
+	list_for_each_safe(&lh->bucket_list, ht_entry, iter, entry) {
 		__gnix_ht_delete_entry(ht_entry);
 
 		++entries_freed;
@@ -142,7 +126,7 @@ static inline int __gnix_ht_insert_list(
 
 	found = __gnix_ht_lookup_key(lh, ht_entry->key, NULL);
 	if (!found) {
-		dlist_insert_tail(&ht_entry->entry, &lh->bucket_list);
+		list_add_tail(&lh->bucket_list, &ht_entry->entry);
 	} else {
 		return -ENOSPC;
 	}
@@ -195,15 +179,13 @@ static inline void __gnix_ht_rehash_list(
 	int collisions = 0;
 	int ret;
 
-	if (dlist_empty(&list->bucket_list))
+	if (list_empty(&list->bucket_list))
 		return;
 
-	gnix_dlist_for_each_entry(ht_entry, &list->bucket_list,
-			gnix_ht_entry_t, entry) {
-
+	list_for_each(&list->bucket_list, ht_entry, entry) {
 		bucket = gnix_hash_func(ht, ht_entry->key);
 
-		dlist_remove(&ht_entry->entry);
+		list_del(&ht_entry->entry);
 
 		ret = __gnix_ht_insert_list(&ht->ht_tbl[bucket],
 				ht_entry, &collisions);
@@ -342,7 +324,6 @@ int gnix_ht_insert(gnix_hashtable_t *ht, gnix_ht_key_t key, void *entry)
 
 	list_entry->value = entry;
 	list_entry->key = key;
-	dlist_init(&list_entry->entry);
 
 	pthread_rwlock_rdlock(&ht->ht_lock);
 	bucket = gnix_hash_func(ht, key);
