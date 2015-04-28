@@ -203,18 +203,27 @@ Test(gnix_hashtable_basic, destroy_twice)
 	__gnix_hashtable_test_destroyed_clean();
 }
 
-
-/* from this point on in the testing, init functions will already set up the
- *   hash maps and then destroy them at the end of the tests.
- */
-
-
 Test(gnix_hashtable_advanced, insert_1)
 {
 	int ret;
 
 	ret = gnix_ht_insert(test_ht, simple_element->key, simple_element);
 	assert(ret == 0);
+
+	assert(atomic_get(&test_ht->ht_elements) == 1);
+}
+
+Test(gnix_hashtable_advanced, insert_duplicate)
+{
+	int ret;
+
+	ret = gnix_ht_insert(test_ht, simple_element->key, simple_element);
+	assert(ret == 0);
+
+	assert(atomic_get(&test_ht->ht_elements) == 1);
+
+	ret = gnix_ht_insert(test_ht, simple_element->key, simple_element);
+	assert(ret == -ENOSPC);
 
 	assert(atomic_get(&test_ht->ht_elements) == 1);
 }
