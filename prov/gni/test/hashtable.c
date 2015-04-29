@@ -416,7 +416,7 @@ Test(gnix_hashtable_advanced, insert_1024_lookup_random)
 	}
 }
 
-Test(gnix_hashtable_advanced, insert_8K_lookup_1M_random)
+Test(gnix_hashtable_advanced, insert_8K_lookup_128K_random)
 {
 	int ret, i, index;
 	gnix_test_element_t *test_elements;
@@ -425,6 +425,7 @@ Test(gnix_hashtable_advanced, insert_8K_lookup_1M_random)
 	gnix_bitmap_t allocated;
 	int test_size = 8 * 1024;
 	int bitmap_size = 64 * test_size;
+	int lookups = 128 * 1024;
 
 	test_elements = calloc(test_size, sizeof(gnix_test_element_t));
 	assert(test_elements != NULL);
@@ -442,7 +443,7 @@ Test(gnix_hashtable_advanced, insert_8K_lookup_1M_random)
 		item = &test_elements[i];
 
 		item->key = index;
-		item->val = rand() % (1024 * 1024);
+		item->val = rand() % lookups;
 		item->magic = __GNIX_MAGIC_VALUE;
 	}
 
@@ -457,7 +458,7 @@ Test(gnix_hashtable_advanced, insert_8K_lookup_1M_random)
 
 	assert(atomic_get(&test_ht->ht_elements) == test_size);
 
-	for (i = 0; i < 1024 * 1024; ++i) {
+	for (i = 0; i < lookups; ++i) {
 		to_find = &test_elements[rand() % test_size];
 		found = gnix_ht_lookup(test_ht, to_find->key);
 		assert(found != NULL);
