@@ -35,6 +35,7 @@
 #include <stdio.h>
 
 #include <gnix_hashtable.h>
+#include <prov/gni/fasthash/fasthash.h>
 
 static inline void __gnix_ht_delete_entry(gnix_ht_entry_t *ht_entry)
 {
@@ -55,7 +56,7 @@ static inline gnix_ht_key_t gnix_hash_func(
 		gnix_hashtable_t *ht,
 		gnix_ht_key_t key)
 {
-	return key % ht->ht_size;
+	return fasthash64(&key, sizeof(gnix_ht_key_t), 0) % ht->ht_size;
 }
 
 static inline gnix_ht_entry_t *__gnix_ht_lookup_key(
