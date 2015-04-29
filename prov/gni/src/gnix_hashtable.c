@@ -47,7 +47,7 @@ static const gnix_hashtable_attr_t default_attr = {
 		.ht_initial_size     = __GNIX_HT_INITIAL_SIZE,
 		.ht_maximum_size     = __GNIX_HT_MAXIMUM_SIZE,
 		.ht_increase_step    = __GNIX_HT_INCREASE_STEP,
-		.ht_increase_type    = GNIX_HT_INCREASE_MULTIPLICATIVE,
+		.ht_increase_type    = GNIX_HT_INCREASE_MULT,
 		.ht_collision_thresh = COLLISION_RESIZE_RATIO
 };
 
@@ -63,8 +63,8 @@ static int __gnix_ht_check_attr_sanity(gnix_hashtable_attr_t *attr)
 	if (attr->ht_increase_step == 0)
 		return -EINVAL;
 
-	if (!(attr->ht_increase_type == GNIX_HT_INCREASE_ADDITIVE ||
-			attr->ht_increase_type == GNIX_HT_INCREASE_MULTIPLICATIVE))
+	if (!(attr->ht_increase_type == GNIX_HT_INCREASE_ADD ||
+			attr->ht_increase_type == GNIX_HT_INCREASE_MULT))
 		return -EINVAL;
 
 	if (attr->ht_collision_thresh == 0)
@@ -242,7 +242,7 @@ static inline void __gnix_ht_resize_hashtable(gnix_hashtable_t *ht)
 	gnix_ht_list_head_t *new_table = NULL, *old_table = NULL;
 
 	/* set up the new bucket list size */
-	if (ht->ht_attr.ht_increase_type == GNIX_HT_INCREASE_ADDITIVE)
+	if (ht->ht_attr.ht_increase_type == GNIX_HT_INCREASE_ADD)
 		new_size += ht->ht_attr.ht_increase_step;
 	else
 		new_size *= ht->ht_attr.ht_increase_step;

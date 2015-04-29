@@ -99,8 +99,8 @@ typedef struct gnix_ht_list_head {
 } gnix_ht_list_head_t;
 
 typedef enum gnix_ht_increase {
-	GNIX_HT_INCREASE_ADDITIVE = 0,
-	GNIX_HT_INCREASE_MULTIPLICATIVE
+	GNIX_HT_INCREASE_ADD = 0,
+	GNIX_HT_INCREASE_MULT
 };
 
 typedef struct gnix_hashtable_attr {
