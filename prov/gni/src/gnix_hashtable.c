@@ -62,7 +62,7 @@ static inline gnix_ht_key_t gnix_hash_func(
 static inline gnix_ht_entry_t *__gnix_ht_lookup_key(
 		gnix_ht_list_head_t *lh,
 		gnix_ht_key_t key,
-		gnix_ht_entry_t **prev)
+		uint64_t *collision_count)
 {
 	gnix_ht_entry_t *ht_entry;
 
@@ -70,16 +70,13 @@ static inline gnix_ht_entry_t *__gnix_ht_lookup_key(
 	if (list_empty(&lh->bucket_list))
 		return NULL;
 
-	if (prev)
-		*prev = NULL;
 
 	list_for_each(&lh->bucket_list, ht_entry, entry) {
-
 		if (ht_entry->key == key)
 			return ht_entry;
 
-		if (prev)
-			*prev = ht_entry;
+		if (collision_count)
+			*collision_count += 1;
 	}
 
 	return NULL;
@@ -120,19 +117,16 @@ static inline void __gnix_ht_destroy_list(
 static inline int __gnix_ht_insert_list(
 		gnix_ht_list_head_t *lh,
 		gnix_ht_entry_t *ht_entry,
-		int *collisions)
+		uint64_t *collisions)
 {
 	gnix_ht_entry_t *found;
-	int hits = 0;
 
-	found = __gnix_ht_lookup_key(lh, ht_entry->key, NULL);
+	found = __gnix_ht_lookup_key(lh, ht_entry->key, collisions);
 	if (!found) {
 		list_add_tail(&lh->bucket_list, &ht_entry->entry);
 	} else {
 		return -ENOSPC;
 	}
-
-	*collisions = hits;
 
 	return 0;
 }
@@ -140,7 +134,7 @@ static inline int __gnix_ht_insert_list(
 static inline int __gnix_ht_insert_list_locked(
 		gnix_ht_list_head_t *lh,
 		gnix_ht_entry_t *ht_entry,
-		int *collisions)
+		uint64_t *collisions)
 {
 	int ret;
 
@@ -175,21 +169,20 @@ static inline void __gnix_ht_rehash_list(
 		gnix_hashtable_t *ht,
 		gnix_ht_list_head_t *list)
 {
-	gnix_ht_entry_t *ht_entry;
+	gnix_ht_entry_t *ht_entry, *tmp;
 	gnix_ht_key_t bucket;
-	int collisions = 0;
 	int ret;
 
 	if (list_empty(&list->bucket_list))
 		return;
 
-	list_for_each(&list->bucket_list, ht_entry, entry) {
+	list_for_each_safe(&list->bucket_list, ht_entry, tmp, entry) {
 		bucket = gnix_hash_func(ht, ht_entry->key);
 
 		list_del(&ht_entry->entry);
 
 		ret = __gnix_ht_insert_list(&ht->ht_tbl[bucket],
-				ht_entry, &collisions);
+				ht_entry, NULL);
 	}
 }
 
@@ -208,7 +201,7 @@ static inline void __gnix_ht_rehash_table(
 static inline void __gnix_ht_resize_hashtable(gnix_hashtable_t *ht)
 {
 	int old_size = ht->ht_size;
-	int new_size = old_size + __GNIX_HT_INCREASE_STEP;
+	int new_size = ht->ht_size + __GNIX_HT_INCREASE_STEP;
 	int i;
 	gnix_ht_list_head_t *new_table = NULL, *old_table = NULL;
 
@@ -227,6 +220,8 @@ static inline void __gnix_ht_resize_hashtable(gnix_hashtable_t *ht)
 		pthread_rwlock_unlock(&ht->ht_lock);
 		return;
 	}
+
+	fprintf(stderr, "resizing table from %i to %i\n", old_size, new_size);
 
 	for (i = 0; i < new_size; ++i) {
 		__gnix_ht_init_list_head(&new_table[i]);
@@ -296,6 +291,10 @@ int gnix_ht_destroy(gnix_hashtable_t *ht)
 	free(ht->ht_tbl);
 	ht->ht_tbl = NULL;
 
+	fprintf(stderr, "table size at destruction, size=%i\n", ht->ht_size);
+	fprintf(stderr, "collisions=%i ops=%i\n", atomic_get(&ht->ht_collisions),
+			atomic_get(&ht->ht_ops));
+
 	ht->ht_size = 0;
 	atomic_set(&ht->ht_collisions, 0);
 	atomic_set(&ht->ht_ops, 0);
@@ -312,7 +311,7 @@ int gnix_ht_insert(gnix_hashtable_t *ht, gnix_ht_key_t key, void *entry)
 	int bucket;
 	int ret;
 	int collisions, ops;
-	int hits = 0;
+	uint64_t hits = 0;
 
 	gnix_ht_entry_t *list_entry;
 
@@ -338,6 +337,9 @@ int gnix_ht_insert(gnix_hashtable_t *ht, gnix_ht_key_t key, void *entry)
 		if (ops > 10 &&
 				((collisions * 100) / ops)
 				> COLLISION_RESIZE_RATIO) {
+
+			fprintf(stderr, "collisions=%i ops=%i elements=%i\n",
+					collisions, ops, atomic_get(&ht->ht_elements));
 			atomic_set(&ht->ht_collisions, 0);
 			atomic_set(&ht->ht_ops, 0);
 
