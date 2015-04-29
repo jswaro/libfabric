@@ -176,6 +176,105 @@ Test(gnix_hashtable_basic, err_initialize_twice)
 	__gnix_hashtable_test_initialized();
 }
 
+Test(gnix_hashtable_basic, err_invalid_initial_size_0)
+{
+	int ret;
+	gnix_hashtable_attr_t attr;
+
+	memcpy(&attr, &default_attr, sizeof(gnix_hashtable_attr_t));
+
+	attr.ht_initial_size = 0;
+
+	ret = gnix_ht_init(test_ht, &attr);
+	assert(ret == -EINVAL);
+	__gnix_hashtable_test_uninitialized();
+}
+
+Test(gnix_hashtable_basic, err_invalid_initial_size_gt_max)
+{
+	int ret;
+	gnix_hashtable_attr_t attr;
+
+	memcpy(&attr, &default_attr, sizeof(gnix_hashtable_attr_t));
+
+	attr.ht_initial_size = attr.ht_maximum_size * 2;
+
+	ret = gnix_ht_init(test_ht, &attr);
+	assert(ret == -EINVAL);
+	__gnix_hashtable_test_uninitialized();
+}
+
+Test(gnix_hashtable_basic, err_invalid_max_size)
+{
+	int ret;
+	gnix_hashtable_attr_t attr;
+
+	memcpy(&attr, &default_attr, sizeof(gnix_hashtable_attr_t));
+
+	attr.ht_maximum_size = 0;
+
+	ret = gnix_ht_init(test_ht, &attr);
+	assert(ret == -EINVAL);
+	__gnix_hashtable_test_uninitialized();
+}
+
+Test(gnix_hashtable_basic, err_invalid_increase_step_all)
+{
+	int ret;
+	gnix_hashtable_attr_t attr;
+
+	memcpy(&attr, &default_attr, sizeof(gnix_hashtable_attr_t));
+
+	attr.ht_increase_step = 0;
+
+	ret = gnix_ht_init(test_ht, &attr);
+	assert(ret == -EINVAL);
+	__gnix_hashtable_test_uninitialized();
+}
+
+Test(gnix_hashtable_basic, err_invalid_increase_step_mult)
+{
+	int ret;
+	gnix_hashtable_attr_t attr;
+
+	memcpy(&attr, &default_attr, sizeof(gnix_hashtable_attr_t));
+
+	attr.ht_increase_step = 1;
+	attr.ht_increase_type = GNIX_HT_INCREASE_MULT;
+
+	ret = gnix_ht_init(test_ht, &attr);
+	assert(ret == -EINVAL);
+	__gnix_hashtable_test_uninitialized();
+}
+
+Test(gnix_hashtable_basic, err_invalid_increase_type)
+{
+	int ret;
+	gnix_hashtable_attr_t attr;
+
+	memcpy(&attr, &default_attr, sizeof(gnix_hashtable_attr_t));
+
+	attr.ht_increase_type = -1;
+
+	ret = gnix_ht_init(test_ht, &attr);
+	assert(ret == -EINVAL);
+	__gnix_hashtable_test_uninitialized();
+}
+
+Test(gnix_hashtable_basic, err_invalid_collision)
+{
+	int ret;
+	gnix_hashtable_attr_t attr;
+
+	memcpy(&attr, &default_attr, sizeof(gnix_hashtable_attr_t));
+
+	attr.ht_collision_thresh = 0;
+
+	ret = gnix_ht_init(test_ht, &attr);
+	assert(ret == -EINVAL);
+	__gnix_hashtable_test_uninitialized();
+}
+
 Test(gnix_hashtable_basic, err_destroy_uninitialized)
 {
 	int ret;
