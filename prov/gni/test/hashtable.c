@@ -38,7 +38,6 @@
 #include <errno.h>
 #include <gnix_hashtable.h>
 #include <gnix_bitmap.h>
-#include <prov/gni/fasthash/fasthash.h>
 
 #ifdef assert
 #undef assert
@@ -47,6 +46,8 @@
 #include <criterion/criterion.h>
 
 #define __GNIX_MAGIC_VALUE 0xDEADBEEF
+
+extern const gnix_hashtable_attr_t default_attr;
 
 typedef struct gnix_test_element {
 	uint64_t val;
@@ -95,7 +96,7 @@ void __gnix_hashtable_test_initialized(void)
 {
 	assert(test_ht->ht_state == GNIX_HT_STATE_READY);
 	assert(atomic_get(&test_ht->ht_elements) == 0);
-	assert(test_ht->ht_size == __GNIX_HT_INITIAL_SIZE);
+	assert(test_ht->ht_size == test_ht->ht_attr.ht_initial_size);
 	assert(test_ht->ht_tbl != NULL);
 }
 
@@ -118,7 +119,7 @@ void __gnix_hashtable_initialize(void)
 {
 	int ret;
 
-	ret = gnix_ht_init(test_ht);
+	ret = gnix_ht_init(test_ht, NULL);
 	assert(ret == 0);
 
 	__gnix_hashtable_test_initialized();
@@ -170,7 +171,7 @@ Test(gnix_hashtable_basic, err_initialize_twice)
 
 	__gnix_hashtable_initialize();
 
-	ret = gnix_ht_init(test_ht);
+	ret = gnix_ht_init(test_ht, NULL);
 	assert(ret == -EINVAL);
 	__gnix_hashtable_test_initialized();
 }
