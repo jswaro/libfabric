@@ -38,6 +38,7 @@
 #include <errno.h>
 #include <gnix_hashtable.h>
 #include <gnix_bitmap.h>
+#include <prov/gni/fasthash/fasthash.h>
 
 #ifdef assert
 #undef assert
