@@ -37,6 +37,7 @@
 
 #include <errno.h>
 #include <gnix_hashtable.h>
+#include <gnix_bitmap.h>
 
 #ifdef assert
 #undef assert
@@ -412,5 +413,60 @@ Test(gnix_hashtable_advanced, insert_1024_lookup_random)
 		assert(found == to_find);
 		assert(found->magic == __GNIX_MAGIC_VALUE);
 	}
+}
+
+Test(gnix_hashtable_advanced, insert_8K_lookup_1M_random)
+{
+	int ret, i, index;
+	gnix_test_element_t *test_elements;
+	gnix_test_element_t *found = NULL, *to_find = NULL;
+	gnix_test_element_t *item;
+	gnix_bitmap_t allocated;
+	int test_size = 8 * 1024;
+	int bitmap_size = 64 * test_size;
+
+	test_elements = calloc(test_size, sizeof(gnix_test_element_t));
+	assert(test_elements != NULL);
+
+	ret = alloc_bitmap(&allocated, bitmap_size);
+	assert(ret == 0);
+
+	srand(time(NULL));
+
+	for (i = 0; i < test_size; ++i) {
+		do {
+			index = rand() % bitmap_size;
+		} while (test_and_set_bit(&allocated, index));
+
+		item = &test_elements[i];
+
+		item->key = index;
+		item->val = rand() % (1024 * 1024);
+		item->magic = __GNIX_MAGIC_VALUE;
+	}
+
+	for (i = 0; i < test_size; ++i) {
+		item = &test_elements[i];
+
+		ret = gnix_ht_insert(test_ht,
+				item->key, item);
+		assert(ret == 0);
+		assert(atomic_get(&test_ht->ht_elements) == (i + 1));
+	}
+
+	assert(atomic_get(&test_ht->ht_elements) == test_size);
+
+	for (i = 0; i < 1024 * 1024; ++i) {
+		to_find = &test_elements[rand() % test_size];
+		found = gnix_ht_lookup(test_ht, to_find->key);
+		assert(found != NULL);
+		assert(found == to_find);
+		assert(found->magic == __GNIX_MAGIC_VALUE);
+	}
+
+	ret = free_bitmap(&allocated);
+	expect(ret == 0);
+
+	free(test_elements);
 }
 
