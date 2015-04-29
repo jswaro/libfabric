@@ -28,7 +28,8 @@ _gni_files = \
 	prov/gni/src/gnix_nic.c \
 	prov/gni/src/gnix_util.c \
 	prov/gni/src/gnix_bitmap.c \
-	prov/gni/src/gnix_hashtable.c
+	prov/gni/src/gnix_hashtable.c \
+	prov/gni/fasthash/fasthash.c
 
 if HAVE_CRITERION
 bin_PROGRAMS = gnitest
