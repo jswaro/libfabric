@@ -98,7 +98,7 @@ typedef struct gnix_ht_list_head {
 	struct list_head bucket_list;
 } gnix_ht_list_head_t;
 
-typedef enum gnix_ht_increase {
+enum gnix_ht_increase {
 	GNIX_HT_INCREASE_ADD = 0,
 	GNIX_HT_INCREASE_MULT
 };

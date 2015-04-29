@@ -41,7 +41,7 @@
 #define __GNIX_HT_MAXIMUM_SIZE 1024
 #define __GNIX_HT_INCREASE_STEP 2
 
-#define COLLISION_RESIZE_RATIO 200
+#define COLLISION_RESIZE_RATIO 400 /* average of 4 elements per bucket */
 
 const gnix_hashtable_attr_t default_attr = {
 		.ht_initial_size     = __GNIX_HT_INITIAL_SIZE,
@@ -243,9 +243,9 @@ static inline void __gnix_ht_resize_hashtable(gnix_hashtable_t *ht)
 
 	/* set up the new bucket list size */
 	if (ht->ht_attr.ht_increase_type == GNIX_HT_INCREASE_ADD)
-		new_size += ht->ht_attr.ht_increase_step;
+		new_size = old_size + ht->ht_attr.ht_increase_step;
 	else
-		new_size *= ht->ht_attr.ht_increase_step;
+		new_size = old_size * ht->ht_attr.ht_increase_step;
 
 	new_size = MIN(new_size, ht->ht_attr.ht_maximum_size);
 
@@ -293,7 +293,7 @@ int gnix_ht_init(gnix_hashtable_t *ht, gnix_hashtable_attr_t *attr)
 	pthread_rwlock_wrlock(&ht->ht_lock);
 
 	if (!attr) {
-		memcpy(&ht->ht_attr, default_attr,
+		memcpy(&ht->ht_attr, &default_attr,
 				sizeof(gnix_hashtable_attr_t));
 	} else {
 		ret = __gnix_ht_check_attr_sanity(attr);
