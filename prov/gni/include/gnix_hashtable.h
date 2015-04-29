@@ -39,46 +39,6 @@
 #include "fi.h"
 #include "prov/gni/ccan/list.h"
 
-#if HAVE_ATOMICS
-static inline int atomic_add(atomic_t *atomic, int val)
-{
-	ATOMIC_IS_INITIALIZED(atomic);
-	return atomic_fetch_add_explicit(&atomic->val,
-			val, memory_order_acq_rel) + 1;
-}
-
-static inline int atomic_sub(atomic_t *atomic, int val)
-{
-	ATOMIC_IS_INITIALIZED(atomic);
-	return atomic_fetch_sub_explicit(&atomic->val,
-			val, memory_order_acq_rel) - 1;
-}
-#else
-static inline int atomic_add(atomic_t *atomic, int val)
-{
-	int v;
-
-	ATOMIC_IS_INITIALIZED(atomic);
-	fastlock_acquire(&atomic->lock);
-	atomic->val += val;
-	v = atomic->val;
-	fastlock_release(&atomic->lock);
-	return v;
-}
-
-static inline int atomic_sub(atomic_t *atomic, int val)
-{
-	int v;
-
-	ATOMIC_IS_INITIALIZED(atomic);
-	fastlock_acquire(&atomic->lock);
-	atomic->val += val;
-	v = atomic->val;
-	fastlock_release(&atomic->lock);
-	return v;
-}
-#endif
-
 typedef uint64_t gnix_ht_key_t;
 
 typedef enum gnix_ht_state {
@@ -103,14 +63,53 @@ enum gnix_ht_increase {
 	GNIX_HT_INCREASE_MULT
 };
 
+/**
+ * Set of attributes that can be passed to the gnix_ht_init.
+ *
+ * @var ht_initial_size      initial number of buckets allocated
+ * @var ht_maximum_size      maximum number of buckets to allocate on resize
+ * @var ht_increase_step     additive or multiplicative factor to increase by.
+ *                           If additive, the new_size = (old_size + increase)
+ *                           If multiplicative, the new size = (old_size *
+ *                           increase)
+ * @var ht_increase_type     based on the gnix_ht_increase enum, this
+ *                           influences whether the increase of the bucket
+ *                           count is additive or multiplicative
+ * @var ht_collision_thresh  threshold for resizing based on insertion
+ *                           collisions. The threshold is based on the
+ *                           average number of collisions per insertion,
+ *                           multiplied by 100. If you want an average bucket
+ *                           depth of 4, you would want to see 3-4 collisions
+ *                           on average, so the appropriate threshold would be
+ *                           ~400.
+ * @var ht_hash_seed		 seed value that affects how items are hashed
+ *                           internally. Using the same seed value and the same
+ *                           insertion pattern will allow for repeatable
+ *                           results.
+ */
 typedef struct gnix_hashtable_attr {
 	int ht_initial_size;
 	int ht_maximum_size;
 	int ht_increase_step;
 	int ht_increase_type;
 	int ht_collision_thresh;
+	uint64_t ht_hash_seed;
 } gnix_hashtable_attr_t;
 
+/**
+ * Hashtable structure
+ *
+ * @var ht_lock        reader/writer lock for protecting internal structures
+ *                     during a resize
+ * @var ht_state       internal state mechanism for detecting valid state
+ *                     transitions
+ * @var ht_attr        attributes for the hash map to follow after init
+ * @var ht_elements    number of items in the hash map
+ * @var ht_collisions  number of insertion collisions since the last resize
+ * @var ht_ops         number of insertions since the last resize
+ * @var ht_size        number of hash buckets
+ * @var ht_tbl         array of hash buckets
+ */
 typedef struct gnix_hashtable {
 	pthread_rwlock_t ht_lock;
 	gnix_ht_state_e ht_state;
@@ -122,13 +121,64 @@ typedef struct gnix_hashtable {
 	gnix_ht_list_head_t *ht_tbl;
 } gnix_hashtable_t;
 
+/**
+ * Initializes the hash table with provided attributes, if any
+ *
+ * @param ht      pointer to the hash table structure
+ * @param attr    pointer to the hash table attributes to initialize with
+ * @return        0 on success, -EINVAL on initialization error, or -ENOMEM
+ *                if allocation of the bucket array fails
+ */
 int gnix_ht_init(gnix_hashtable_t *ht, gnix_hashtable_attr_t *attr);
+
+/**
+ * Destroys the hash table
+ *
+ * @param ht      pointer to the hash table structure
+ * @return        0 on success, -EINVAL upon passing an uninitialized or dead
+ *                structure
+ */
 int gnix_ht_destroy(gnix_hashtable_t *ht);
 
+/**
+ * Inserts an entry into the map with the provided key
+ *
+ * @param ht      pointer to the hash table structure
+ * @param key     key used to hash the entry
+ * @param entry   entry to be stored
+ * @return        0 on success, -ENOSPC when another entry with the same key
+ *                exists in the hashtable, or -EINVAL when called on a dead or
+ *                uninitialized hash table
+ */
 int gnix_ht_insert(gnix_hashtable_t *ht, gnix_ht_key_t key, void *entry);
+
+/**
+ * Removes an entry from the map with the provided key
+ *
+ * @param ht      pointer to the hash table structure
+ * @param key     key used to hash the entry
+ * @return        0 on success, -ENOENT when the key doesn't exist in the hash
+ *                table, or -EINVAL when called on a dead or uninitialized hash
+ *                table
+ */
 int gnix_ht_remove(gnix_hashtable_t *ht, gnix_ht_key_t key);
+
+/**
+ * Looks up an entry in the hash table using key
+ *
+ * @param ht      pointer to the hash table structure
+ * @param key     key used to hash the entry
+ * @return        NULL if the key did not exist in the hash table, or the
+ *                entry if the key exists in the hash table
+ */
 void *gnix_ht_lookup(gnix_hashtable_t *ht, gnix_ht_key_t key);
 
+/**
+ * Tests to see if the hash table is empty
+ *
+ * @param ht      pointer to the hash table structure
+ * @return        true if the hash table is empty, false if not
+ */
 int gnix_ht_empty(gnix_hashtable_t *ht);
 
 #endif /* GNIX_HASHTABLE_H_ */
