@@ -79,13 +79,6 @@ static inline int atomic_sub(atomic_t *atomic, int val)
 }
 #endif
 
-
-#define __GNIX_HT_INITIAL_SIZE 128
-#define __GNIX_HT_MAXIMUM_SIZE 1024
-#define __GNIX_HT_INCREASE_STEP __GNIX_HT_INITIAL_SIZE
-
-#define COLLISION_RESIZE_RATIO 20
-
 typedef uint64_t gnix_ht_key_t;
 
 typedef enum gnix_ht_state {
@@ -129,7 +122,7 @@ typedef struct gnix_hashtable {
 	gnix_ht_list_head_t *ht_tbl;
 } gnix_hashtable_t;
 
-int gnix_ht_init(gnix_hashtable_t *ht);
+int gnix_ht_init(gnix_hashtable_t *ht, gnix_hashtable_attr_t *attr);
 int gnix_ht_destroy(gnix_hashtable_t *ht);
 
 int gnix_ht_insert(gnix_hashtable_t *ht, gnix_ht_key_t key, void *entry);
