@@ -105,9 +105,23 @@ typedef struct gnix_ht_list_head {
 	struct list_head bucket_list;
 } gnix_ht_list_head_t;
 
+typedef enum gnix_ht_increase {
+	GNIX_HT_INCREASE_ADDITIVE = 0,
+	GNIX_HT_INCREASE_MULTIPLICATIVE
+};
+
+typedef struct gnix_hashtable_attr {
+	int ht_initial_size;
+	int ht_maximum_size;
+	int ht_increase_step;
+	int ht_increase_type;
+	int ht_collision_thresh;
+} gnix_hashtable_attr_t;
+
 typedef struct gnix_hashtable {
 	pthread_rwlock_t ht_lock;
 	gnix_ht_state_e ht_state;
+	gnix_hashtable_attr_t ht_attr;
 	atomic_t ht_elements;
 	atomic_t ht_collisions;
 	atomic_t ht_ops;
