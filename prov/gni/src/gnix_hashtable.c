@@ -41,14 +41,58 @@
 #define __GNIX_HT_MAXIMUM_SIZE 1024
 #define __GNIX_HT_INCREASE_STEP 2
 
-#define COLLISION_RESIZE_RATIO 400 /* average of 4 elements per bucket */
+#define __GNIX_HT_COLLISION_THRESH 400 /* average of 4 elements per bucket */
+
+/* This is temporary until I can convince someone that this belongs in the
+ *   fi.h header file.
+ */
+#if HAVE_ATOMICS
+static inline int atomic_add(atomic_t *atomic, int val)
+{
+	ATOMIC_IS_INITIALIZED(atomic);
+	return atomic_fetch_add_explicit(&atomic->val,
+			val, memory_order_acq_rel) + 1;
+}
+
+static inline int atomic_sub(atomic_t *atomic, int val)
+{
+	ATOMIC_IS_INITIALIZED(atomic);
+	return atomic_fetch_sub_explicit(&atomic->val,
+			val, memory_order_acq_rel) - 1;
+}
+#else
+static inline int atomic_add(atomic_t *atomic, int val)
+{
+	int v;
+
+	ATOMIC_IS_INITIALIZED(atomic);
+	fastlock_acquire(&atomic->lock);
+	atomic->val += val;
+	v = atomic->val;
+	fastlock_release(&atomic->lock);
+	return v;
+}
+
+static inline int atomic_sub(atomic_t *atomic, int val)
+{
+	int v;
+
+	ATOMIC_IS_INITIALIZED(atomic);
+	fastlock_acquire(&atomic->lock);
+	atomic->val += val;
+	v = atomic->val;
+	fastlock_release(&atomic->lock);
+	return v;
+}
+#endif
 
 const gnix_hashtable_attr_t default_attr = {
 		.ht_initial_size     = __GNIX_HT_INITIAL_SIZE,
 		.ht_maximum_size     = __GNIX_HT_MAXIMUM_SIZE,
 		.ht_increase_step    = __GNIX_HT_INCREASE_STEP,
 		.ht_increase_type    = GNIX_HT_INCREASE_MULT,
-		.ht_collision_thresh = COLLISION_RESIZE_RATIO
+		.ht_collision_thresh = __GNIX_HT_COLLISION_THRESH,
+		.ht_hash_seed        = 0
 };
 
 static int __gnix_ht_check_attr_sanity(gnix_hashtable_attr_t *attr)
@@ -65,6 +109,10 @@ static int __gnix_ht_check_attr_sanity(gnix_hashtable_attr_t *attr)
 
 	if (!(attr->ht_increase_type == GNIX_HT_INCREASE_ADD ||
 			attr->ht_increase_type == GNIX_HT_INCREASE_MULT))
+		return -EINVAL;
+
+	if (attr->ht_increase_step == 1 &&
+			attr->ht_increase_type == GNIX_HT_INCREASE_MULT)
 		return -EINVAL;
 
 	if (attr->ht_collision_thresh == 0)
@@ -92,7 +140,8 @@ static inline gnix_ht_key_t gnix_hash_func(
 		gnix_hashtable_t *ht,
 		gnix_ht_key_t key)
 {
-	return fasthash64(&key, sizeof(gnix_ht_key_t), 0) % ht->ht_size;
+	return fasthash64(&key, sizeof(gnix_ht_key_t),
+			ht->ht_attr.ht_hash_seed) % ht->ht_size;
 }
 
 static inline gnix_ht_entry_t *__gnix_ht_lookup_key(
@@ -105,7 +154,6 @@ static inline gnix_ht_entry_t *__gnix_ht_lookup_key(
 
 	if (list_empty(&lh->bucket_list))
 		return NULL;
-
 
 	list_for_each(&lh->bucket_list, ht_entry, entry) {
 		if (ht_entry->key == key)
@@ -264,8 +312,6 @@ static inline void __gnix_ht_resize_hashtable(gnix_hashtable_t *ht)
 		return;
 	}
 
-	fprintf(stderr, "resizing table from %i to %i\n", old_size, new_size);
-
 	for (i = 0; i < new_size; ++i) {
 		__gnix_ht_init_list_head(&new_table[i]);
 	}
@@ -346,10 +392,6 @@ int gnix_ht_destroy(gnix_hashtable_t *ht)
 	free(ht->ht_tbl);
 	ht->ht_tbl = NULL;
 
-	fprintf(stderr, "table size at destruction, size=%i\n", ht->ht_size);
-	fprintf(stderr, "collisions=%i ops=%i\n", atomic_get(&ht->ht_collisions),
-			atomic_get(&ht->ht_ops));
-
 	ht->ht_size = 0;
 	atomic_set(&ht->ht_collisions, 0);
 	atomic_set(&ht->ht_ops, 0);
@@ -393,8 +435,6 @@ int gnix_ht_insert(gnix_hashtable_t *ht, gnix_ht_key_t key, void *entry)
 				((collisions * 100) / ops)
 				> ht->ht_attr.ht_collision_thresh) {
 
-			fprintf(stderr, "collisions=%i ops=%i elements=%i\n",
-					collisions, ops, atomic_get(&ht->ht_elements));
 			atomic_set(&ht->ht_collisions, 0);
 			atomic_set(&ht->ht_ops, 0);
 
