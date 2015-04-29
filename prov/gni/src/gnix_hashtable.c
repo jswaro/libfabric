@@ -37,6 +37,42 @@
 #include <gnix_hashtable.h>
 #include <prov/gni/fasthash/fasthash.h>
 
+#define __GNIX_HT_INITIAL_SIZE 128
+#define __GNIX_HT_MAXIMUM_SIZE 1024
+#define __GNIX_HT_INCREASE_STEP 2
+
+#define COLLISION_RESIZE_RATIO 200
+
+static const gnix_hashtable_attr_t default_attr = {
+		.ht_initial_size     = __GNIX_HT_INITIAL_SIZE,
+		.ht_maximum_size     = __GNIX_HT_MAXIMUM_SIZE,
+		.ht_increase_step    = __GNIX_HT_INCREASE_STEP,
+		.ht_increase_type    = GNIX_HT_INCREASE_MULTIPLICATIVE,
+		.ht_collision_thresh = COLLISION_RESIZE_RATIO
+};
+
+static int __gnix_ht_check_attr_sanity(gnix_hashtable_attr_t *attr)
+{
+	if (attr->ht_initial_size == 0 ||
+			attr->ht_initial_size > attr->ht_maximum_size)
+		return -EINVAL;
+
+	if (attr->ht_maximum_size == 0)
+		return -EINVAL;
+
+	if (attr->ht_increase_step == 0)
+		return -EINVAL;
+
+	if (!(attr->ht_increase_type == GNIX_HT_INCREASE_ADDITIVE ||
+			attr->ht_increase_type == GNIX_HT_INCREASE_MULTIPLICATIVE))
+		return -EINVAL;
+
+	if (attr->ht_collision_thresh == 0)
+		return -EINVAL;
+
+	return 0;
+}
+
 static inline void __gnix_ht_delete_entry(gnix_ht_entry_t *ht_entry)
 {
 	list_del(&ht_entry->entry);
@@ -201,10 +237,17 @@ static inline void __gnix_ht_rehash_table(
 static inline void __gnix_ht_resize_hashtable(gnix_hashtable_t *ht)
 {
 	int old_size = ht->ht_size;
-	int new_size = ht->ht_size + __GNIX_HT_INCREASE_STEP;
+	int new_size;
 	int i;
 	gnix_ht_list_head_t *new_table = NULL, *old_table = NULL;
 
+	/* set up the new bucket list size */
+	if (ht->ht_attr.ht_increase_type == GNIX_HT_INCREASE_ADDITIVE)
+		new_size += ht->ht_attr.ht_increase_step;
+	else
+		new_size *= ht->ht_attr.ht_increase_step;
+
+	new_size = MIN(new_size, ht->ht_attr.ht_maximum_size);
 
 	/* race to resize... let one of them resize the hash table and the rest
 	 * can just release after the first is done.
@@ -236,9 +279,10 @@ static inline void __gnix_ht_resize_hashtable(gnix_hashtable_t *ht)
 	pthread_rwlock_unlock(&ht->ht_lock);
 }
 
-int gnix_ht_init(gnix_hashtable_t *ht)
+int gnix_ht_init(gnix_hashtable_t *ht, gnix_hashtable_attr_t *attr)
 {
 	int i;
+	int ret;
 
 	if (ht->ht_state == GNIX_HT_STATE_READY)
 		return -EINVAL;
@@ -248,7 +292,18 @@ int gnix_ht_init(gnix_hashtable_t *ht)
 
 	pthread_rwlock_wrlock(&ht->ht_lock);
 
-	ht->ht_size = __GNIX_HT_INITIAL_SIZE;
+	if (!attr) {
+		memcpy(&ht->ht_attr, default_attr,
+				sizeof(gnix_hashtable_attr_t));
+	} else {
+		ret = __gnix_ht_check_attr_sanity(attr);
+		if (ret < 0)
+			return ret;
+
+		memcpy(&ht->ht_attr, attr, sizeof(gnix_hashtable_attr_t));
+	}
+
+	ht->ht_size = ht->ht_attr.ht_initial_size;
 	ht->ht_tbl = calloc(ht->ht_size, sizeof(gnix_ht_list_head_t));
 	if (!ht->ht_tbl) {
 		pthread_rwlock_unlock(&ht->ht_lock);
@@ -331,12 +386,12 @@ int gnix_ht_insert(gnix_hashtable_t *ht, gnix_ht_key_t key, void *entry)
 			list_entry, &hits);
 	pthread_rwlock_unlock(&ht->ht_lock);
 
-	if (ht->ht_size < __GNIX_HT_MAXIMUM_SIZE) {
+	if (ht->ht_size < ht->ht_attr.ht_maximum_size) {
 		collisions = atomic_add(&ht->ht_collisions, hits);
 		ops = atomic_inc(&ht->ht_ops);
 		if (ops > 10 &&
 				((collisions * 100) / ops)
-				> COLLISION_RESIZE_RATIO) {
+				> ht->ht_attr.ht_collision_thresh) {
 
 			fprintf(stderr, "collisions=%i ops=%i elements=%i\n",
 					collisions, ops, atomic_get(&ht->ht_elements));
