@@ -61,6 +61,7 @@ static inline int64_t __sign_extend(uint64_t val, int len)
 	return r;
 }
 
+<<<<<<< HEAD
 void gnix_convert_key_to_mhdl(
 		IN    gnix_mr_key_t *key,
 		INOUT gni_mem_handle_t *mhdl)
@@ -116,11 +117,15 @@ int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 						FI_REMOTE_READ |
 						FI_REMOTE_WRITE)) ||
 			(fid->fclass != FI_CLASS_DOMAIN))
+
 		return -FI_EINVAL;
 
 	/* requested key is not permitted at this point */
 	if (requested_key)
 		return -FI_EKEYREJECTED;
+
+	if (fid->fclass != FI_CLASS_DOMAIN)
+		return -FI_EINVAL;
 
 	domain = container_of(fid, struct gnix_fid_domain, domain_fid.fid);
 
@@ -175,6 +180,7 @@ int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 			(gnix_mr_key_t *) &mr->mr_fid.key);
 
 	*mr_o = &mr->mr_fid;
+
 
 	return FI_SUCCESS;
 
