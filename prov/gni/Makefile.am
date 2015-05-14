@@ -10,6 +10,8 @@ if HAVE_GNI
 AM_CFLAGS += -I$(top_srcdir)/prov/gni/include -I$(top_srcdir)/prov/gni
 
 _gni_files = \
+	prov/gni/common/rbtree.c \
+	prov/gni/fasthash/fasthash.c \
 	prov/gni/src/gnix_init.c \
 	prov/gni/src/gnix_fabric.c \
 	prov/gni/src/gnix_dom.c \
@@ -29,7 +31,6 @@ _gni_files = \
 	prov/gni/src/gnix_util.c \
 	prov/gni/src/gnix_bitmap.c \
 	prov/gni/src/gnix_hashtable.c \
-	prov/gni/fasthash/fasthash.c \
 	prov/gni/src/gnix_mbox_allocator.c
 
 if HAVE_CRITERION
