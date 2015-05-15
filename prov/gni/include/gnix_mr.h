@@ -33,8 +33,9 @@
 #ifndef GNIX_MR_H_
 #define GNIX_MR_H_
 
-#include "gnix.h"
-#include "gnix_nic.h"
+#include "fi_domain.h"
+//#include "gnix.h"
+//#include "gnix_nic.h"
 #include "gnix_util.h"
 #include "ccan/list.h"
 #include "common/rbtree.h"
@@ -59,6 +60,8 @@ typedef struct gnix_mr_cache_key {
 	uint64_t length;
 } gnix_mr_cache_key_t;
 
+struct gnix_fid_domain;
+struct gnix_nic;
 struct gnix_fid_mem_desc {
 	struct fid_mr mr_fid;
 	struct gnix_fid_domain *domain;
