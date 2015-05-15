@@ -53,13 +53,30 @@ enum {
 	GNIX_MR_FLAG_READONLY = 1 << 0
 };
 
+/**
+ * @brief structure for containing the fields relevant to the memory cache key
+ *
+ * @var   address  base address of the memory region
+ * @var   address  length of the memory region
+ */
 typedef struct gnix_mr_cache_key {
 	uint64_t address;
 	uint64_t length;
 } gnix_mr_cache_key_t;
 
+/* forward declarations */
 struct gnix_fid_domain;
 struct gnix_nic;
+
+/**
+ * @brief gnix memory descriptor object for use with fi_mr_reg
+ *
+ * @var   mr_fid    libfabric memory region descriptor
+ * @var   domain    gnix domain associated with this memory region
+ * @var   mem_hndl  gni memory handle for the memory region
+ * @var   nic       gnix nic associated with this memory region
+ * @var   key       gnix memory cache key associated with this memory region
+ */
 struct gnix_fid_mem_desc {
 	struct fid_mr mr_fid;
 	struct gnix_fid_domain *domain;
@@ -68,6 +85,15 @@ struct gnix_fid_mem_desc {
 	gnix_mr_cache_key_t key;
 };
 
+/**
+ * @brief gnix memory region key
+ *
+ * @var   pfn      prefix of the virtual address
+ * @var   mdd      index for the mdd
+ * @var   format   flag for determining whether new mdd format is used
+ * @var   flags    set of bits for passing flags such as read-only
+ * @var   padding  reserved bits, unused for now
+ */
 typedef struct gnix_mr_key {
 	union {
 		struct {
@@ -83,6 +109,26 @@ typedef struct gnix_mr_key {
 	};
 } gnix_mr_key_t;
 
+/**
+ * @brief gnix memory registration cache attributes
+ *
+ * @var   soft_reg_limit       unused currently, imposes a soft limit for which
+ *                             a flush can be called during register to
+ *                             drain any stale registrations
+ * @var   hard_reg_limit       limit to the number of memory registrations
+ *                             in the cache
+ * @var   hard_stale_limit     limit to the number of stale memory
+ *                             registrations in the cache. If the number is
+ *                             exceeded during deregistration,
+ *                             gnix_mr_cache_flush will be called to flush
+ *                             the stale entries.
+ * @var   lazy_deregistration  if non-zero, allows registrations to linger
+ *                             until the hard_stale_limit is exceeded. This
+ *                             prevents unnecessary re-registration of memory
+ *                             regions that may be reused frequently. Larger
+ *                             values for hard_stale_limit may reduce the
+ *                             frequency of flushes.
+ */
 typedef struct gnix_mr_cache_attr {
 	int soft_reg_limit;
 	int hard_reg_limit;
@@ -96,6 +142,16 @@ typedef enum {
 	GNIX_MRC_STATE_DEAD,
 } gnix_mrc_state_e;
 
+/**
+ * @brief  gnix memory registration cache object
+ *
+ * @var    state           state of the cache
+ * @var    attr            cache attributes, @see gnix_mr_cache_attr_t
+ * @var    inuse           red-black tree containing in-use memory registrations
+ * @var    stale           reb-black tree containing stale memory registrations
+ * @var    inuse_elements  count of in-use memory registrations
+ * @var    stale_elements  count of stale memory registrations
+ */
 typedef struct gnix_mr_cache {
 	gnix_mrc_state_e state;
 	gnix_mr_cache_attr_t attr;
@@ -105,21 +161,66 @@ typedef struct gnix_mr_cache {
 	atomic_t stale_elements;
 } gnix_mr_cache_t;
 
+/**
+ * Converts a libfabric key to a gni memory handle
+ *
+ * @param key   libfabric memory region key
+ * @param mhdl  gni memory handle
+ */
 void gnix_convert_key_to_mhdl(
 		IN    gnix_mr_key_t    *key,
 		INOUT gni_mem_handle_t *mhdl);
 
+/**
+ * Converts a gni memory handle to a libfabric key
+ *
+ * @param mhdl  gni memory handle
+ * @param key   libfabric memory region key
+ */
 void gnix_convert_mhdl_to_key(
 		IN    gni_mem_handle_t *mhdl,
 		INOUT gnix_mr_key_t    *key);
 
+/**
+ * Initializes a gnix memory registration cache
+ *
+ * @param cache  a gnix memory registration cache
+ * @param attr   a set of attributes to apply to the cache
+ *
+ * @return       FI_SUCCESS on success
+ *               -FI_EINVAL if an invalid cache pointer, or invalid set of
+ *                 attributes has been passed into the function
+ *               -FI_ENOMEM if there wasn't sufficient memory to allocate
+ *                 internal data structures
+ */
 int gnix_mr_cache_init(
 		IN gnix_mr_cache_t      *cache,
 		IN gnix_mr_cache_attr_t *attr);
 
+/**
+ * Destroys a gnix memory registration cache. Flushes stale memory
+ *   registrations if the hard limit for stale registrations has been exceeded
+ *
+ * @param cache  a gnix memory registration cache
+ *
+ * @return       FI_SUCCESS on success
+ *               -FI_EINVAL if an invalid cache pointer has been passed into
+ *                 the function
+ *               -FI_EAGAIN if the cache still contains memory registrations
+ *                 that have not yet been deregistered
+ */
 int gnix_mr_cache_destroy(
 		IN gnix_mr_cache_t *cache);
 
+/**
+ * Flushes stale memory registrations from a memory registration cache.
+ *
+ * @param cache  a gnix memory registration cache
+ *
+ * @return       FI_SUCCESS on success
+ *               -FI_EINVAL if an invalid cache pointer has been passed into
+ *                 the function
+ */
 int gnix_mr_cache_flush(
 		IN gnix_mr_cache_t *cache);
 
