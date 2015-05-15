@@ -44,6 +44,9 @@ static struct fi_cq_attr cq_attr;
 #define __BUF_LEN 4096
 static unsigned char *buf;
 static int buf_len = __BUF_LEN * sizeof(unsigned char);
+static struct gnix_fid_domain *domain;
+static gnix_mr_cache_t *cache;
+static int regions;
 
 uint64_t default_access = (FI_REMOTE_READ | FI_REMOTE_WRITE
 		| FI_READ | FI_WRITE);
@@ -80,6 +83,10 @@ static void mr_setup(void)
 
 	buf = calloc(__BUF_LEN, sizeof(unsigned char));
 	assert(buf, "buffer allocation");
+
+	domain = container_of(dom, struct gnix_fid_domain, domain_fid.fid);
+	cache = &domain->mr_cache;
+	regions = 1024;
 }
 
 static void mr_teardown(void)
@@ -95,10 +102,15 @@ static void mr_teardown(void)
 	fi_freeinfo(fi);
 	fi_freeinfo(hints);
 
+	domain = NULL;
+	cache = NULL;
+
 	free(buf);
 }
 
 TestSuite(memory_registration_bare, .init = mr_setup, .fini = mr_teardown);
+
+TestSuite(memory_registration_cache, .init = mr_setup, .fini = mr_teardown);
 
 Test(memory_registration_bare, basic_init)
 {
@@ -189,4 +201,190 @@ Test(memory_registration_bare, invalid_fid_class)
 	dom->fid.fclass = old_class;
 }
 
+Test(memory_registration_cache, basic_init)
+{
+	int ret;
 
+	assert(cache->state == GNIX_MRC_STATE_READY);
+
+	ret = fi_mr_reg(dom, (void *) buf, buf_len, default_access,
+			default_offset, default_req_key,
+			default_flags, &mr, NULL);
+	assert(ret == FI_SUCCESS);
+
+	assert(atomic_get(&cache->total_elements) == 1);
+	assert(atomic_get(&cache->stale_elements) == 0);
+
+	ret = fi_close(&mr->fid);
+	assert(ret == FI_SUCCESS);
+}
+
+Test(memory_registration_cache, register_1024_distinct_regions)
+{
+	int ret;
+	uint64_t **buffers;
+	struct fid_mr **mr_arr;
+	int i;
+
+	mr_arr = calloc(regions, sizeof(struct fid_mr *));
+	assert(mr_arr);
+
+	buffers = calloc(regions, sizeof(uint64_t *));
+	assert(buffers, "failed to allocate array of buffers");
+
+	for (i = 0; i < regions; ++i) {
+		buffers[i] = calloc(__BUF_LEN, sizeof(uint64_t));
+		assert(buffers[i]);
+	}
+
+	for (i = 0; i < regions; ++i) {
+		ret = fi_mr_reg(dom, (void *) buffers[i], __BUF_LEN, default_access,
+				default_offset, default_req_key,
+				default_flags, &mr_arr[i], NULL);
+		assert(ret == FI_SUCCESS);
+	}
+
+	assert(atomic_get(&cache->total_elements) == regions);
+	assert(atomic_get(&cache->stale_elements) == 0);
+
+	for (i = 0; i < regions; ++i) {
+		ret = fi_close(&mr_arr[i]->fid);
+		assert(ret == FI_SUCCESS);
+	}
+
+	for (i = 0; i < regions; ++i) {
+		free(buffers[i]);
+		buffers[i] = NULL;
+	}
+
+	free(buffers);
+	buffers = NULL;
+
+	free(mr_arr);
+	mr_arr = NULL;
+}
+
+Test(memory_registration_cache, register_1024_non_unique_regions)
+{
+	int ret;
+	char *hugepage;
+	struct fid_mr *hugepage_mr;
+	char **buffers;
+	struct fid_mr **mr_arr;
+	int i;
+
+	mr_arr = calloc(regions, sizeof(struct fid_mr *));
+	assert(mr_arr);
+
+	buffers = calloc(regions, sizeof(uint64_t *));
+	assert(buffers, "failed to allocate array of buffers");
+
+	hugepage = calloc(regions * regions, sizeof(char));
+	assert(hugepage);
+
+	for (i = 0; i < regions; ++i) {
+		buffers[i] = &hugepage[i * regions];
+		assert(buffers[i]);
+	}
+
+	ret = fi_mr_reg(dom, (void *) hugepage, regions * regions * sizeof(char),
+			default_access, default_offset, default_reg_key,
+			default_flags, &hugepage_mr, NULL);
+	assert(ret == FI_SUCCESS);
+
+	for (i = 0; i < regions; ++i) {
+		ret = fi_mr_reg(dom, (void *) buffers[i], regions, default_access,
+				default_offset, default_req_key,
+				default_flags, &mr_arr[i], NULL);
+		assert(ret == FI_SUCCESS);
+	}
+
+	assert(atomic_get(&cache->total_elements) == 1);
+	assert(atomic_get(&cache->stale_elements) == 0);
+
+	for (i = 0; i < regions; ++i) {
+		ret = fi_close(&mr_arr[i]->fid);
+		assert(ret == FI_SUCCESS);
+	}
+
+	ret = fi_close(&hugepage_mr->fid);
+	assert(ret == FI_SUCCESS);
+
+	free(buffers);
+	buffers = NULL;
+
+	free(mr_arr);
+	mr_arr = NULL;
+}
+
+Test(memory_registration_cache, cyclic_register_128_distinct_regions)
+{
+	int ret;
+	uint64_t **buffers;
+	struct fid_mr **mr_arr;
+	int i;
+
+	regions = 128;
+	mr_arr = calloc(regions, sizeof(struct fid_mr *));
+	assert(mr_arr);
+
+	buffers = calloc(regions, sizeof(uint64_t *));
+	assert(buffers, "failed to allocate array of buffers");
+
+	for (i = 0; i < regions; ++i) {
+		buffers[i] = calloc(__BUF_LEN, sizeof(uint64_t));
+		assert(buffers[i]);
+	}
+
+	/* create the initial memory registrations */
+	for (i = 0; i < regions; ++i) {
+		ret = fi_mr_reg(dom, (void *) buffers[i], regions, default_access,
+				default_offset, default_req_key,
+				default_flags, &mr_arr[i], NULL);
+		assert(ret == FI_SUCCESS);
+	}
+
+	/* all registrations should now be 'in-use' */
+	assert(atomic_get(&cache->total_elements) == regions);
+	assert(atomic_get(&cache->stale_elements) == 0);
+
+	for (i = 0; i < regions; ++i) {
+		ret = fi_close(&mr_arr[i]->fid);
+		assert(ret == FI_SUCCESS);
+	}
+
+	/* all registrations should now be 'stale' */
+	assert(atomic_get(&cache->total_elements) == regions);
+	assert(atomic_get(&cache->stale_elements) == regions);
+
+	for (i = 0; i < regions; ++i) {
+		ret = fi_mr_reg(dom, (void *) buffers[i], regions, default_access,
+				default_offset, default_req_key,
+				default_flags, &mr_arr[i], NULL);
+		assert(ret == FI_SUCCESS);
+	}
+
+	/* all registrations should have been moved from 'stale' to 'in-use' */
+	assert(atomic_get(&cache->total_elements) == regions);
+	assert(atomic_get(&cache->stale_elements) == 0);
+
+	for (i = 0; i < regions; ++i) {
+		ret = fi_close(&mr_arr[i]->fid);
+		assert(ret == FI_SUCCESS);
+	}
+
+	/* all registrations should now be 'stale' */
+	assert(atomic_get(&cache->total_elements) == regions);
+	assert(atomic_get(&cache->stale_elements) == regions);
+
+	for (i = 0; i < regions; ++i) {
+		free(buffers[i]);
+		buffers[i] = NULL;
+	}
+
+	free(buffers);
+	buffers = NULL;
+
+	free(mr_arr);
+	mr_arr = NULL;
+}
