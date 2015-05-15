@@ -143,7 +143,7 @@ static inline int __mr_cache_entry_put(
 	RbtStatus rc;
 	gni_return_t grc = GNI_RC_SUCCESS;
 
-	if (!atomic_dec(&entry->ref_cnt)) {
+	if (atomic_dec(&entry->ref_cnt) == 0) {
 		rbtErase(cache->inuse, iter);
 		atomic_dec(&cache->inuse_elements);
 
@@ -399,16 +399,16 @@ int gnix_mr_cache_flush(
 	gnix_mr_cache_entry_t *entry;
 	int destroyed = 0;
 
+	GNIX_INFO(FI_LOG_MR, "starting flush on memory registration cache\n");
+
 	if (cache->state != GNIX_MRC_STATE_READY)
 		return -FI_EINVAL;
 
 	for (iter = rbtBegin(cache->stale);
 			iter != rbtEnd(cache->stale);
-			iter = next) {
+			iter = rbtNext(cache->stale, iter)) {
 
 		rbtKeyValue(cache->stale, iter, (void **) &key, (void **) &entry);
-
-		next = rbtNext(cache->stale, iter);
 		rbtErase(cache->stale, iter);
 
 		__mr_cache_entry_destroy(entry);
@@ -416,6 +416,9 @@ int gnix_mr_cache_flush(
 		++destroyed;
 	}
 
+	GNIX_INFO(FI_LOG_MR, "flushed %i of %i entries from memory "
+			"registration cache\n", destroyed,
+			atomic_get(&cache->stale_elements));
 	if (destroyed > 0) {
 		atomic_sub(&cache->stale_elements, destroyed);
 	}
@@ -556,7 +559,7 @@ static int gnix_mr_deregister(
 	rbtKeyValue(cache->inuse, iter, (void **) &e_key, (void **) &entry);
 
 	grc = __mr_cache_entry_put(cache, entry, iter);
-	if (grc == GNI_RC_SUCCESS &&
+	if (cache->attr.lazy_deregistration &&
 			atomic_get(&cache->stale_elements) >= cache->attr.hard_stale_limit)
 		gnix_mr_cache_flush(cache);
 

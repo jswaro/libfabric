@@ -71,7 +71,7 @@ static inline int atomic_sub(atomic_t *atomic, int val)
 
 	ATOMIC_IS_INITIALIZED(atomic);
 	fastlock_acquire(&atomic->lock);
-	atomic->val += val;
+	atomic->val -= val;
 	v = atomic->val;
 	fastlock_release(&atomic->lock);
 	return v;

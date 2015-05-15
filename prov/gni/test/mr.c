@@ -301,7 +301,7 @@ Test(memory_registration_cache, register_1024_distinct_regions)
 	mr_arr = NULL;
 
 	assert(atomic_get(&cache->inuse_elements) == 0);
-	assert(atomic_get(&cache->stale_elements) > 0);
+	assert(atomic_get(&cache->stale_elements) >= 0);
 }
 
 Test(memory_registration_cache, register_1024_non_unique_regions)
@@ -363,25 +363,26 @@ Test(memory_registration_cache, register_1024_non_unique_regions)
 Test(memory_registration_cache, cyclic_register_128_distinct_regions)
 {
 	int ret;
-	uint64_t **buffers;
+	char **buffers;
 	struct fid_mr **mr_arr;
 	int i;
+	int buf_size = __BUF_LEN * sizeof(char);
 
 	regions = 128;
 	mr_arr = calloc(regions, sizeof(struct fid_mr *));
 	assert(mr_arr);
 
-	buffers = calloc(regions, sizeof(uint64_t *));
+	buffers = calloc(regions, sizeof(char *));
 	assert(buffers, "failed to allocate array of buffers");
 
 	for (i = 0; i < regions; ++i) {
-		buffers[i] = calloc(__BUF_LEN, sizeof(uint64_t));
+		buffers[i] = calloc(__BUF_LEN, sizeof(char));
 		assert(buffers[i]);
 	}
 
 	/* create the initial memory registrations */
 	for (i = 0; i < regions; ++i) {
-		ret = fi_mr_reg(dom, (void *) buffers[i], __BUF_LEN, default_access,
+		ret = fi_mr_reg(dom, (void *) buffers[i], buf_size, default_access,
 				default_offset, default_req_key,
 				default_flags, &mr_arr[i], NULL);
 		assert(ret == FI_SUCCESS);
@@ -401,14 +402,11 @@ Test(memory_registration_cache, cyclic_register_128_distinct_regions)
 	assert(atomic_get(&cache->stale_elements) >= 0);
 
 	for (i = 0; i < regions; ++i) {
-		ret = fi_mr_reg(dom, (void *) buffers[i], __BUF_LEN, default_access,
+		ret = fi_mr_reg(dom, (void *) buffers[i], buf_size, default_access,
 				default_offset, default_req_key,
 				default_flags, &mr_arr[i], NULL);
 		assert(ret == FI_SUCCESS);
 	}
-
-	printf("inuse=%i stale=%i\n", atomic_get(&cache->inuse_elements),
-			atomic_get(&cache->stale_elements));
 
 	/* all registrations should have been moved from 'stale' to 'in-use' */
 	assert(atomic_get(&cache->inuse_elements) == regions);
