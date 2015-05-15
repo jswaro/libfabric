@@ -73,6 +73,11 @@ static int gnix_domain_close(fid_t fid)
 		goto err;
 	}
 
+	/* before checking the refcnt, flush the memory registration cache */
+	ret = gnix_mr_cache_flush(&domain->mr_cache);
+	if (ret != FI_SUCCESS)
+		goto err;
+
 	/*
 	 * if non-zero refcnt, there are eps, mrs, and/or an eq associated
 	 * with this domain which have not been closed.
@@ -84,6 +89,13 @@ static int gnix_domain_close(fid_t fid)
 	}
 
 	GNIX_INFO(FI_LOG_DOMAIN, "gnix_domain_close invoked.\n");
+
+	ret = gnix_mr_cache_destroy(&domain->mr_cache);
+	if (ret != FI_SUCCESS) {
+		GNIX_WARN(FI_LOG_DOMAIN, "failed to destroy memory cache"
+				" on domain close");
+		goto err;
+	}
 
 	/*
 	 *  remove nics from the domain's nic list,
@@ -197,6 +209,10 @@ int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 		ret = -FI_ENOMEM;
 		goto err;
 	}
+
+	ret = gnix_mr_cache_init(&domain->mr_cache, NULL);
+	if (ret != FI_SUCCESS)
+		goto err;
 
 	list_head_init(&domain->nic_list);
 	gnix_list_node_init(&domain->list);

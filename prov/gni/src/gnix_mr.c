@@ -370,7 +370,7 @@ int gnix_mr_cache_destroy(
 	 *   destroy the cache at this point.
 	 */
 	if (atomic_get(&cache->total_elements) != 0)
-		return -FI_EAGAIN;
+		return -FI_EBUSY;
 
 	rbtDelete(cache->inuse);
 	cache->inuse = NULL;

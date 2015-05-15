@@ -64,6 +64,7 @@ extern "C" {
 #include "gni_pub.h"
 #include "ccan/list.h"
 #include "gnix_util.h"
+#include "gnix_mr.h"
 
 #include "gnix_cq.h"
 
@@ -230,6 +231,7 @@ struct gnix_fid_domain {
 	enum fi_progress control_progress;
 	enum fi_progress data_progress;
 	atomic_t ref_cnt;
+	gnix_mr_cache_t mr_cache;
 };
 
 /*
