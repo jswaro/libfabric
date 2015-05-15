@@ -33,9 +33,7 @@
 #ifndef GNIX_MR_H_
 #define GNIX_MR_H_
 
-#include "fi_domain.h"
-//#include "gnix.h"
-//#include "gnix_nic.h"
+#include "rdma/fi_domain.h"
 #include "gnix_util.h"
 #include "ccan/list.h"
 #include "common/rbtree.h"

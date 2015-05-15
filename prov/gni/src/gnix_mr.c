@@ -37,6 +37,7 @@
 #include <string.h>
 
 #include "gnix.h"
+#include "gnix_nic.h"
 #include "gnix_util.h"
 #include "gnix_mr.h"
 #include "gnix_priv.h"
