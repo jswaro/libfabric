@@ -37,6 +37,7 @@
 #include "gnix_nic.h"
 #include "gnix_util.h"
 #include "ccan/list.h"
+#include "common/rbtree.h"
 
 #define GNIX_MR_PAGE_SHIFT 12
 #define GNIX_MR_PFN_BITS 37
@@ -53,11 +54,17 @@ enum {
 	GNIX_MR_FLAG_READONLY = 1 << 0
 };
 
+typedef struct gnix_mr_cache_key {
+	uint64_t address;
+	uint64_t length;
+} gnix_mr_cache_key_t;
+
 struct gnix_fid_mem_desc {
 	struct fid_mr mr_fid;
 	struct gnix_fid_domain *domain;
 	gni_mem_handle_t mem_hndl;
 	struct gnix_nic *nic;
+	gnix_mr_cache_key_t key;
 };
 
 typedef struct gnix_mr_key {
@@ -75,13 +82,42 @@ typedef struct gnix_mr_key {
 	};
 } gnix_mr_key_t;
 
+typedef struct gnix_mr_cache_attr {
+	int soft_reg_limit;
+	int hard_reg_limit;
+	int hard_stale_limit;
+	int lazy_deregistration;
+} gnix_mr_cache_attr_t;
+
+typedef enum {
+	GNIX_MRC_STATE_UNINITIALIZED = 0,
+	GNIX_MRC_STATE_READY,
+	GNIX_MRC_STATE_DEAD,
+} gnix_mrc_state_e;
+
+typedef struct gnix_mr_cache {
+	gnix_mrc_state_e state;
+	gnix_mr_cache_attr_t attr;
+	RbtHandle inuse;
+	RbtHandle stale;
+	atomic_t total_elements;
+	atomic_t stale_elements;
+} gnix_mr_cache_t;
+
 void gnix_convert_key_to_mhdl(
-		IN    gnix_mr_key_t *key,
+		IN    gnix_mr_key_t    *key,
 		INOUT gni_mem_handle_t *mhdl);
 
 void gnix_convert_mhdl_to_key(
 		IN    gni_mem_handle_t *mhdl,
-		INOUT gnix_mr_key_t *key);
+		INOUT gnix_mr_key_t    *key);
 
+int gnix_mr_cache_init(
+		IN gnix_mr_cache_t      *cache,
+		IN gnix_mr_cache_attr_t attr);
+int gnix_mr_cache_destroy(
+		IN gnix_mr_cache_t *cache);
+int gnix_mr_cache_flush(
+		IN gnix_mr_cache_t *cache);
 
 #endif /* GNIX_MR_H_ */

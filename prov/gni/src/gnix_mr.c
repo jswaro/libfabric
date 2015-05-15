@@ -43,6 +43,14 @@
 
 #define PAGE_SHIFT 12
 
+typedef struct gnix_mr_cache_entry {
+	gni_mem_handle_t mem_hndl;
+	gnix_mr_cache_key_t key;
+	struct gnix_fid_domain *domain;
+	struct gnix_nic *nic;
+	atomic_t ref_cnt;
+} gnix_mr_cache_entry_t;
+
 static int fi_gnix_mr_close(fid_t fid);
 
 static struct fi_ops fi_gnix_mr_ops = {
@@ -53,6 +61,13 @@ static struct fi_ops fi_gnix_mr_ops = {
 	.ops_open = fi_no_ops_open,
 };
 
+static gnix_mr_cache_attr_t __default_mr_cache_attr = {
+		.soft_reg_limit      = 4096,
+		.hard_reg_limit      = -1,
+		.hard_stale_limit    = 128,
+		.lazy_deregistration = 1
+};
+
 static inline int64_t __sign_extend(uint64_t val, int len)
 {
 	int64_t m = 1UL << (len - 1);
@@ -61,7 +76,61 @@ static inline int64_t __sign_extend(uint64_t val, int len)
 	return r;
 }
 
-<<<<<<< HEAD
+static inline int __mr_cache_key_comp(void *x, void *y)
+{
+	return 0;
+}
+
+static inline int __mr_cache_entry_destroy(
+		INOUT gnix_mr_cache_entry_t *entry)
+{
+	ret = GNI_MemDeregister(entry->nic->gni_nic_hndl, &entry->mem_hndl);
+	if (ret == GNI_RC_SUCCESS) {
+		atomic_dec(&entry->domain->ref_cnt);
+		atomic_dec(&entry->nic->ref_cnt);
+
+		free(entry);
+	} else {
+		GNIX_WARN(FI_LOG_MR, "failed to deregister memory"
+				" region, cache_entry=%p ret=%i", entry, ret);
+	}
+
+	return ret;
+}
+
+static inline int __mr_cache_entry_get(
+		IN gnix_mr_cache_t       *cache,
+		IN gnix_mr_cache_entry_t *entry)
+{
+	return atomic_inc(&entry->ref_cnt);
+}
+
+static inline int __mr_cache_entry_put(
+		IN gnix_mr_cache_t       *cache,
+		IN gnix_mr_cache_entry_t *entry)
+{
+	RbtStatus rc;
+	gni_return_t grc = GNI_RC_SUCCESS;
+
+	if (!atomic_dec(&entry->ref_cnt)) {
+		if (cache->attr.lazy_deregistration) {
+			rc = rbtInsert(cache->stale, &entry->key, entry);
+			if (rc != RBT_STATUS_OK) {
+				grc = __mr_cache_entry_destroy(entry);
+				atomic_dec(&cache->total_elements);
+			} else {
+				atomic_inc(&cache->stale_elements);
+			}
+
+		} else {
+			__mr_cache_entry_destroy(entry);
+			atomic_dec(&cache->total_elements);
+		}
+	}
+
+	return grc;
+}
+
 void gnix_convert_key_to_mhdl(
 		IN    gnix_mr_key_t *key,
 		INOUT gni_mem_handle_t *mhdl)
@@ -150,16 +219,9 @@ int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 		}
 	}
 
-	list_for_each(&domain->nic_list, nic, list)
-	{
-		grc = GNI_MemRegister(nic->gni_nic_hndl, (uintptr_t) buf, len,
-					NULL, fi_gnix_access,
-					-1, &mr->mem_hndl);
-		if (grc == GNI_RC_SUCCESS)
-			break;
-	}
-
-	if (grc != GNI_RC_SUCCESS)
+	rc = gnix_mr_register(domain->cache, mr, (uint64_t) buf, len,
+			NULL, fi_gnix_access, -1, &mr->mem_hndl);
+	if (rc != FI_SUCCESS)
 		goto err;
 
 	/* md.domain */
@@ -186,9 +248,7 @@ int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 
 err:
 	free(mr);
-	GNIX_INFO(FI_LOG_MR, "failed to register memory with uGNI, ret=%s",
-			gni_err_str[grc]);
-	return -gnixu_to_fi_errno(grc);
+	return rc;
 }
 
 static int fi_gnix_mr_close(fid_t fid)
@@ -201,23 +261,238 @@ static int fi_gnix_mr_close(fid_t fid)
 
 	mr = container_of(fid, struct gnix_fid_mem_desc, mr_fid.fid);
 
-	ret = GNI_MemDeregister(mr->nic->gni_nic_hndl, &mr->mem_hndl);
-	if (ret == GNI_RC_SUCCESS) {
-		atomic_dec(&mr->domain->ref_cnt);
-		atomic_dec(&mr->nic->ref_cnt);
-
-		/* Change the fid class to prevent user from calling into
-		 *   close again on a dead atomic.
-		 */
-		mr->mr_fid.fid.fclass = FI_CLASS_UNSPEC;
-
-		free(mr);
-	} else {
-		GNIX_WARN(FI_LOG_MR, "failed to deregister memory"
-				" region, mr=%p ret=%i", mr, ret);
-	}
+	ret = gnix_mr_deregister(cache, mr);
 
 	return gnixu_to_fi_errno(ret);
 }
 
 
+static inline int __check_mr_cache_attr_sanity(gnix_mr_cache_attr_t *attr)
+{
+
+	return FI_SUCCESS;
+}
+
+int gnix_mr_cache_init(
+		IN gnix_mr_cache_t *cache,
+		IN gnix_mr_cache_attr_t *attr)
+{
+	gnix_mr_cache_attr_t *cache_attr = &__default_mr_cache_attr;
+
+	if (!cache || cache->state == GNIX_MRC_STATE_READY ||
+			cache->state > GNIX_MRC_STATE_DEAD)
+		return -FI_EINVAL;
+
+	if (attr) {
+		if (__check_mr_cache_attr_sanity() != FI_SUCCESS)
+			return -FI_EINVAL;
+
+		cache_attr = attr;
+	}
+
+	memcpy(&cache->attr, cache_attr, sizeof(*cache_attr));
+
+	cache->inuse = rbtNew(__mr_cache_key_comp);
+	if (!cache->inuse)
+		return -FI_ENOMEM;
+
+	if (cache->attr.lazy_deregistration) {
+		cache->stale = rbtNew(__mr_cache_key_comp);
+		if (!cache->stale) {
+			rbtDelete(cache->inuse);
+			cache->inuse = NULL;
+
+			return -FI_ENOMEM;
+		}
+	}
+
+	if (cache->state == GNIX_MRC_STATE_UNINITIALIZED) {
+		atomic_initialize(&cache->total_elements, 0);
+		atomic_initialize(&cache->stale_elements, 0);
+	}
+
+	cache->state = GNIX_MRC_STATE_READY;
+
+	return FI_SUCCESS;
+}
+
+int gnix_mr_cache_destroy(
+		IN gnix_mr_cache_t *cache)
+{
+	if (cache->state != GNIX_MRC_STATE_READY)
+		return -FI_EINVAL;
+
+	/*
+	 * Remove all of the stale entries from the cache
+	 */
+	gnix_mr_cache_flush(cache);
+
+	/*
+	 * if there are still elements in the cache after the flush,
+	 *   then someone forgot to deregister memory. We probably shouldn't
+	 *   destroy the cache at this point.
+	 */
+	if (atomic_get(&cache->total_elements) != 0)
+		return -FI_EAGAIN;
+
+	rbtDelete(cache->inuse);
+	cache->inuse = NULL;
+
+	if (cache->attr.lazy_deregistration) {
+		rbtDelete(cache->stale);
+		cache->stale = NULL;
+	}
+
+	cache->state = GNIX_MRC_STATE_DEAD;
+
+	return FI_SUCCESS;
+}
+
+int gnix_mr_cache_flush(
+		IN gnix_mr_cache_t *cache)
+{
+	RbtIterator iter, next;
+	gnix_mr_cache_key_t *key;
+	gnix_mr_cache_entry_t *entry;
+	int destroyed_cnt = 0;
+
+	if (cache->state != GNIX_MRC_STATE_READY)
+		return -FI_EINVAL;
+
+	for (iter = rbtBegin(cache->stale);
+			iter != rbtEnd(cache->stale);
+			iter = next) {
+
+		rbtKeyValue(cache->stale, iter, &key, &entry);
+
+		next = rbtNext(cache->stale, iter);
+		rbtErase(cache->stale, iter);
+
+		__mr_cache_entry_destroy(entry);
+		entry = NULL;
+
+		++destroyed_cnt;
+	}
+
+	if (destroyed_cnt > 0) {
+		atomic_sub(&cache->total_elements, destroyed_cnt);
+		atomic_sub(&cache->stale_elements, destroyed_cnt);
+	}
+
+	return FI_SUCCESS;
+}
+
+int gnix_mr_register(
+		IN    gnix_mr_cache_t   *cache,
+		IN    struct gnix_fid_mem_desc *mr,
+		IN    gni_nic_handle_t  nic_hndl,
+		IN    uint64_t          address,
+		IN    uint64_t          length,
+		IN    gni_cq_handle_t   dst_cq_hndl,
+		IN    uint32_t          flags,
+		IN    uint32_t          vmdh_index,
+		INOUT gni_mem_handle_t  *mem_hndl)
+{
+	RbtStatus rc;
+	RbtIterator iter;
+	gnix_mr_cache_key_t key, *e_key;
+	gnix_mr_cache_entry_t *entry;
+
+	iter = rbtFind(cache->inuse, &key);
+	if (iter) {
+		rbtKeyValue(cache->inuse, &e_key, &entry);
+
+		__mr_cache_entry_get(cache, entry);
+
+		goto success;
+	} else if (cache->attr.lazy_deregistration) {
+		/* if lazy deregistration is in use, we can check the stale tree */
+		iter = rbtFind(cache->stale);
+		if (iter) {
+			rbtKeyValue(cache->stale, iter, &e_key, &entry);
+
+			/* reset the reference count as it should be zero from
+			 *   being in the stale tree anyway
+			 */
+			atomic_set(&entry->ref_cnt, 1);
+
+			rbtErase(cache->stale, iter);
+			rc = rbtInsert(cache->inuse, &e_key, entry);
+			if (rc == RBT_STATUS_MEM_EXHAUSTED) {
+				__mr_cache_entry_destroy(entry);
+				return -FI_ENOMEM;
+			}
+
+			goto success;
+		}
+	}
+
+	/* if we made it here, we didn't find the entry at all */
+	entry = calloc(1, sizeof(*entry));
+	if (!entry)
+		return -FI_ENOMEM;
+
+	/* TODO: should we just try the first nic we find? */
+	list_for_each(&domain->nic_list, nic, list)
+	{
+		grc = GNI_MemRegister(nic->gni_nic_hndl, address, length,
+					dst_cq_hndl, flags,
+					vmdh_index, &entry->mem_hndl);
+		if (grc == GNI_RC_SUCCESS)
+			break;
+	}
+
+	if (grc != GNI_RC_SUCCESS) {
+		free(entry);
+		GNIX_INFO(FI_LOG_MR, "failed to register memory with uGNI, ret=%s",
+						gni_err_str[grc]);
+		return -gnixu_to_fi_errno(grc);
+	}
+
+	atomic_initialize(&entry->ref_cnt, 1);
+	entry->domain = domain;
+	entry->nic = nic;
+	entry->key.address = address;
+	entry->key.length = length;
+
+
+	rc = rbtInsert(cache->inuse, &entry->key, entry);
+	if (rc == RBT_STATUS_MEM_EXHAUSTED) {
+		GNIX_INFO(FI_LOG_MR, "failed to insert registration into cache");
+
+		grc = GNI_MemDeregister(nic->gni_nic_hndl, &entry->mem_hndl);
+		if (grc != GNI_RC_SUCCESS) {
+			GNIX_INFO(FI_LOG_MR, "failed to deregister memory with uGNI, "
+					"ret=%s", gni_err_str[grc]);
+		}
+
+		free(entry);
+		return -FI_ENOMEM;
+	}
+
+success:
+
+	mr->key.address = entry->key.address;
+	mr->key.length = entry->key.length;
+	*mem_hndl = entry->mem_hndl;
+	return FI_SUCCESS;
+}
+
+int gnix_mr_deregister(
+		IN gnix_mr_cache_t  *cache,
+		IN struct gnix_fid_mem_desc *mr)
+{
+	RbtStatus rc;
+	RbtIterator iter;
+	gnix_mr_cache_key_t key, *e_key;
+	gnix_mr_cache_entry_t *entry;
+
+	/* TODO: construct the key for searching the tree */
+	iter = rbtFind(cache->inuse, &mr->key);
+	if (!iter)
+		return -FI_ENOENT;
+
+	rbtKeyValue(cache->inuse, iter, &e_key, &entry);
+
+	return __mr_cache_entry_put(cache, entry);
+}
