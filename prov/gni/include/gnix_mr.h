@@ -101,7 +101,7 @@ typedef struct gnix_mr_cache {
 	gnix_mr_cache_attr_t attr;
 	RbtHandle inuse;
 	RbtHandle stale;
-	atomic_t total_elements;
+	atomic_t inuse_elements;
 	atomic_t stale_elements;
 } gnix_mr_cache_t;
 

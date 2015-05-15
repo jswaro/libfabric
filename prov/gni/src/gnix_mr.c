@@ -137,24 +137,26 @@ static inline int __mr_cache_entry_get(
 
 static inline int __mr_cache_entry_put(
 		IN gnix_mr_cache_t       *cache,
-		IN gnix_mr_cache_entry_t *entry)
+		IN gnix_mr_cache_entry_t *entry,
+		IN RbtIterator           iter)
 {
 	RbtStatus rc;
 	gni_return_t grc = GNI_RC_SUCCESS;
 
 	if (!atomic_dec(&entry->ref_cnt)) {
+		rbtErase(cache->inuse, iter);
+		atomic_dec(&cache->inuse_elements);
+
 		if (cache->attr.lazy_deregistration) {
 			rc = rbtInsert(cache->stale, &entry->key, entry);
 			if (rc != RBT_STATUS_OK) {
 				grc = __mr_cache_entry_destroy(entry);
-				atomic_dec(&cache->total_elements);
 			} else {
 				atomic_inc(&cache->stale_elements);
 			}
 
 		} else {
-			__mr_cache_entry_destroy(entry);
-			atomic_dec(&cache->total_elements);
+			grc = __mr_cache_entry_destroy(entry);
 		}
 	}
 
@@ -290,12 +292,14 @@ static int fi_gnix_mr_close(fid_t fid)
 	mr = container_of(fid, struct gnix_fid_mem_desc, mr_fid.fid);
 
 	ret = gnix_mr_deregister(&mr->domain->mr_cache, mr);
-	if (ret == GNI_RC_SUCCESS) {
+	if (ret == FI_SUCCESS) {
 		atomic_dec(&mr->domain->ref_cnt);
 		atomic_dec(&mr->nic->ref_cnt);
+	} else {
+		GNIX_WARN(FI_LOG_MR, "failed to deregister memory, ret=%i\n", ret);
 	}
 
-	return gnixu_to_fi_errno(ret);
+	return ret;
 }
 
 
@@ -345,7 +349,7 @@ int gnix_mr_cache_init(
 	}
 
 	if (cache->state == GNIX_MRC_STATE_UNINITIALIZED) {
-		atomic_initialize(&cache->total_elements, 0);
+		atomic_initialize(&cache->inuse_elements, 0);
 		atomic_initialize(&cache->stale_elements, 0);
 	}
 
@@ -370,8 +374,9 @@ int gnix_mr_cache_destroy(
 	 *   then someone forgot to deregister memory. We probably shouldn't
 	 *   destroy the cache at this point.
 	 */
-	if (atomic_get(&cache->total_elements) != 0)
+	if (atomic_get(&cache->inuse_elements) != 0) {
 		return -FI_EAGAIN;
+	}
 
 	rbtDelete(cache->inuse);
 	cache->inuse = NULL;
@@ -392,6 +397,7 @@ int gnix_mr_cache_flush(
 	RbtIterator iter, next;
 	gnix_mr_cache_key_t *key;
 	gnix_mr_cache_entry_t *entry;
+	int destroyed = 0;
 
 	if (cache->state != GNIX_MRC_STATE_READY)
 		return -FI_EINVAL;
@@ -407,6 +413,11 @@ int gnix_mr_cache_flush(
 
 		__mr_cache_entry_destroy(entry);
 		entry = NULL;
+		++destroyed;
+	}
+
+	if (destroyed > 0) {
+		atomic_sub(&cache->stale_elements, destroyed);
 	}
 
 	return FI_SUCCESS;
@@ -429,18 +440,21 @@ static int gnix_mr_register(
 	gnix_mr_cache_entry_t *entry;
 	struct gnix_nic *nic;
 	gni_return_t grc;
-	int inuse_elements = atomic_get(&cache->total_elements) -
-			atomic_get(&cache->stale_elements);
 
-	if (inuse_elements > cache->attr.hard_reg_limit &&
+	if (atomic_get(&cache->inuse_elements) >= cache->attr.hard_reg_limit &&
 			cache->attr.hard_reg_limit > 0)
 		return FI_ENOSPC;
+
+	/* build key for searching */
+	key.address = address;
+	key.length = length;
 
 	iter = rbtFind(cache->inuse, &key);
 	if (iter) {
 		rbtKeyValue(cache->inuse, iter, (void **) &e_key, (void **) &entry);
 
 		__mr_cache_entry_get(cache, entry);
+		nic = entry->nic;
 
 		goto success;
 	} else if (cache->attr.lazy_deregistration) {
@@ -455,12 +469,16 @@ static int gnix_mr_register(
 			 */
 			atomic_set(&entry->ref_cnt, 1);
 
+			/* clear the element from the stale cache */
 			rbtErase(cache->stale, iter);
+			atomic_dec(&cache->stale_elements);
+
 			rc = rbtInsert(cache->inuse, (void *) &e_key, (void *) entry);
 			if (rc == RBT_STATUS_MEM_EXHAUSTED) {
 				__mr_cache_entry_destroy(entry);
 				return -FI_ENOMEM;
 			}
+
 
 			goto success;
 		}
@@ -488,15 +506,9 @@ static int gnix_mr_register(
 		return -gnixu_to_fi_errno(grc);
 	}
 
-	atomic_initialize(&entry->ref_cnt, 1);
-	entry->domain = domain;
-	entry->nic = nic;
+	/* set up the entry's key */
 	entry->key.address = address;
 	entry->key.length = length;
-
-	atomic_inc(&entry->domain->ref_cnt);
-	atomic_inc(&entry->nic->ref_cnt);
-
 
 	rc = rbtInsert(cache->inuse, &entry->key, entry);
 	if (rc == RBT_STATUS_MEM_EXHAUSTED) {
@@ -511,6 +523,14 @@ static int gnix_mr_register(
 		free(entry);
 		return -FI_ENOMEM;
 	}
+
+	atomic_inc(&cache->inuse_elements);
+	atomic_initialize(&entry->ref_cnt, 1);
+	entry->domain = domain;
+	entry->nic = nic;
+
+	atomic_inc(&entry->domain->ref_cnt);
+	atomic_inc(&entry->nic->ref_cnt);
 
 success:
 	mr->nic = nic;
@@ -535,10 +555,9 @@ static int gnix_mr_deregister(
 
 	rbtKeyValue(cache->inuse, iter, (void **) &e_key, (void **) &entry);
 
-	grc = __mr_cache_entry_put(cache, entry);
-
-	if (grc == FI_SUCCESS &&
-			atomic_get(&cache->stale_elements) > cache->attr.hard_stale_limit)
+	grc = __mr_cache_entry_put(cache, entry, iter);
+	if (grc == GNI_RC_SUCCESS &&
+			atomic_get(&cache->stale_elements) >= cache->attr.hard_stale_limit)
 		gnix_mr_cache_flush(cache);
 
 	return gnixu_to_fi_errno(grc);
