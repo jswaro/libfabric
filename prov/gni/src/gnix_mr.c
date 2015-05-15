@@ -205,7 +205,6 @@ int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 	struct gnix_fid_domain *domain;
 	struct gnix_nic *nic;
 	int rc;
-	gnix_mr_cache_t *cache = NULL; // TODO: need to put the cache in domain
 
 	if (flags)
 		return -FI_EBADFLAGS;
@@ -249,7 +248,7 @@ int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 		}
 	}
 
-	rc = gnix_mr_register(cache, mr, domain, (uint64_t) buf, len,
+	rc = gnix_mr_register(&domain->mr_cache, mr, domain, (uint64_t) buf, len,
 			NULL, fi_gnix_access, -1, &mr->mem_hndl);
 	if (rc != FI_SUCCESS)
 		goto err;
@@ -264,8 +263,7 @@ int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 	mr->mr_fid.fid.ops = &fi_gnix_mr_ops;
 
 	/* nic */
-	mr->nic = nic;
-	atomic_inc(&nic->ref_cnt); /* take reference on nic */
+	atomic_inc(&mr->nic->ref_cnt); /* take reference on nic */
 
 	/* setup internal key structure */
 	gnix_convert_mhdl_to_key(&mr->mem_hndl,
@@ -285,14 +283,17 @@ static int fi_gnix_mr_close(fid_t fid)
 {
 	struct gnix_fid_mem_desc *mr;
 	gni_return_t ret;
-	gnix_mr_cache_t *cache = NULL; /* TODO: set from domain */
 
 	if (fid->fclass != FI_CLASS_MR)
 		return -FI_EINVAL;
 
 	mr = container_of(fid, struct gnix_fid_mem_desc, mr_fid.fid);
 
-	ret = gnix_mr_deregister(cache, mr);
+	ret = gnix_mr_deregister(&mr->domain->mr_cache, mr);
+	if (ret == GNI_RC_SUCCESS) {
+		atomic_dec(&mr->domain->ref_cnt);
+		atomic_dec(&mr->nic->ref_cnt);
+	}
 
 	return gnixu_to_fi_errno(ret);
 }
@@ -370,7 +371,7 @@ int gnix_mr_cache_destroy(
 	 *   destroy the cache at this point.
 	 */
 	if (atomic_get(&cache->total_elements) != 0)
-		return -FI_EBUSY;
+		return -FI_EAGAIN;
 
 	rbtDelete(cache->inuse);
 	cache->inuse = NULL;
@@ -391,7 +392,6 @@ int gnix_mr_cache_flush(
 	RbtIterator iter, next;
 	gnix_mr_cache_key_t *key;
 	gnix_mr_cache_entry_t *entry;
-	int destroyed_cnt = 0;
 
 	if (cache->state != GNIX_MRC_STATE_READY)
 		return -FI_EINVAL;
@@ -407,13 +407,6 @@ int gnix_mr_cache_flush(
 
 		__mr_cache_entry_destroy(entry);
 		entry = NULL;
-
-		++destroyed_cnt;
-	}
-
-	if (destroyed_cnt > 0) {
-		atomic_sub(&cache->total_elements, destroyed_cnt);
-		atomic_sub(&cache->stale_elements, destroyed_cnt);
 	}
 
 	return FI_SUCCESS;
@@ -501,6 +494,9 @@ static int gnix_mr_register(
 	entry->key.address = address;
 	entry->key.length = length;
 
+	atomic_inc(&entry->domain->ref_cnt);
+	atomic_inc(&entry->nic->ref_cnt);
+
 
 	rc = rbtInsert(cache->inuse, &entry->key, entry);
 	if (rc == RBT_STATUS_MEM_EXHAUSTED) {
@@ -517,6 +513,7 @@ static int gnix_mr_register(
 	}
 
 success:
+	mr->nic = nic;
 	mr->key.address = entry->key.address;
 	mr->key.length = entry->key.length;
 	*mem_hndl = entry->mem_hndl;
