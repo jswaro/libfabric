@@ -40,8 +40,26 @@
 #include "gnix_util.h"
 #include "gnix_mr.h"
 #include "gnix_priv.h"
+#include "common/atomics.h"
 
 #define PAGE_SHIFT 12
+
+static int gnix_mr_register(
+		IN    gnix_mr_cache_t          *cache,
+		IN    struct gnix_fid_mem_desc *mr,
+		IN    struct gnix_fid_domain   *domain,
+		IN    uint64_t                 address,
+		IN    uint64_t                 length,
+		IN    gni_cq_handle_t          dst_cq_hndl,
+		IN    uint32_t                 flags,
+		IN    uint32_t                 vmdh_index,
+		INOUT gni_mem_handle_t         *mem_hndl);
+
+static int gnix_mr_deregister(
+		IN gnix_mr_cache_t          *cache,
+		IN struct gnix_fid_mem_desc *mr);
+
+static int fi_gnix_mr_close(fid_t fid);
 
 typedef struct gnix_mr_cache_entry {
 	gni_mem_handle_t mem_hndl;
@@ -50,8 +68,6 @@ typedef struct gnix_mr_cache_entry {
 	struct gnix_nic *nic;
 	atomic_t ref_cnt;
 } gnix_mr_cache_entry_t;
-
-static int fi_gnix_mr_close(fid_t fid);
 
 static struct fi_ops fi_gnix_mr_ops = {
 	.size = sizeof(struct fi_ops),
@@ -78,12 +94,25 @@ static inline int64_t __sign_extend(uint64_t val, int len)
 
 static inline int __mr_cache_key_comp(void *x, void *y)
 {
-	return 0;
+	gnix_mr_cache_key_t *to_insert  = (gnix_mr_cache_key_t *) x;
+	gnix_mr_cache_key_t *to_compare = (gnix_mr_cache_key_t *) y;
+	uint64_t insert_end = to_insert->address + to_insert->length;
+	uint64_t compare_end = to_compare->address + to_compare->length;
+
+	if (to_compare->address <= to_insert->address && insert_end <= compare_end)
+		return 0;
+
+	if (to_insert->address < to_compare->address)
+		return -1;
+
+	return 1;
 }
 
 static inline int __mr_cache_entry_destroy(
 		INOUT gnix_mr_cache_entry_t *entry)
 {
+	gni_return_t ret;
+
 	ret = GNI_MemDeregister(entry->nic->gni_nic_hndl, &entry->mem_hndl);
 	if (ret == GNI_RC_SUCCESS) {
 		atomic_dec(&entry->domain->ref_cnt);
@@ -174,8 +203,8 @@ int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 	int fi_gnix_access = 0;
 	struct gnix_fid_domain *domain;
 	struct gnix_nic *nic;
-	gni_return_t grc = GNI_RC_INVALID_PARAM;
 	int rc;
+	gnix_mr_cache_t *cache = NULL; // TODO: need to put the cache in domain
 
 	if (flags)
 		return -FI_EBADFLAGS;
@@ -219,7 +248,7 @@ int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 		}
 	}
 
-	rc = gnix_mr_register(domain->cache, mr, (uint64_t) buf, len,
+	rc = gnix_mr_register(cache, mr, domain, (uint64_t) buf, len,
 			NULL, fi_gnix_access, -1, &mr->mem_hndl);
 	if (rc != FI_SUCCESS)
 		goto err;
@@ -255,6 +284,7 @@ static int fi_gnix_mr_close(fid_t fid)
 {
 	struct gnix_fid_mem_desc *mr;
 	gni_return_t ret;
+	gnix_mr_cache_t *cache = NULL; /* TODO: set from domain */
 
 	if (fid->fclass != FI_CLASS_MR)
 		return -FI_EINVAL;
@@ -269,12 +299,18 @@ static int fi_gnix_mr_close(fid_t fid)
 
 static inline int __check_mr_cache_attr_sanity(gnix_mr_cache_attr_t *attr)
 {
+	if (attr->hard_reg_limit > 0 &&
+			attr->hard_reg_limit < attr->soft_reg_limit)
+		return -FI_EINVAL;
+
+	if (attr->hard_stale_limit < 0)
+		return -FI_EINVAL;
 
 	return FI_SUCCESS;
 }
 
 int gnix_mr_cache_init(
-		IN gnix_mr_cache_t *cache,
+		IN gnix_mr_cache_t      *cache,
 		IN gnix_mr_cache_attr_t *attr)
 {
 	gnix_mr_cache_attr_t *cache_attr = &__default_mr_cache_attr;
@@ -284,7 +320,7 @@ int gnix_mr_cache_init(
 		return -FI_EINVAL;
 
 	if (attr) {
-		if (__check_mr_cache_attr_sanity() != FI_SUCCESS)
+		if (__check_mr_cache_attr_sanity(attr) != FI_SUCCESS)
 			return -FI_EINVAL;
 
 		cache_attr = attr;
@@ -363,7 +399,7 @@ int gnix_mr_cache_flush(
 			iter != rbtEnd(cache->stale);
 			iter = next) {
 
-		rbtKeyValue(cache->stale, iter, &key, &entry);
+		rbtKeyValue(cache->stale, iter, (void **) &key, (void **) &entry);
 
 		next = rbtNext(cache->stale, iter);
 		rbtErase(cache->stale, iter);
@@ -382,34 +418,43 @@ int gnix_mr_cache_flush(
 	return FI_SUCCESS;
 }
 
-int gnix_mr_register(
-		IN    gnix_mr_cache_t   *cache,
+static int gnix_mr_register(
+		IN    gnix_mr_cache_t          *cache,
 		IN    struct gnix_fid_mem_desc *mr,
-		IN    gni_nic_handle_t  nic_hndl,
-		IN    uint64_t          address,
-		IN    uint64_t          length,
-		IN    gni_cq_handle_t   dst_cq_hndl,
-		IN    uint32_t          flags,
-		IN    uint32_t          vmdh_index,
-		INOUT gni_mem_handle_t  *mem_hndl)
+		IN    struct gnix_fid_domain   *domain,
+		IN    uint64_t                 address,
+		IN    uint64_t                 length,
+		IN    gni_cq_handle_t          dst_cq_hndl,
+		IN    uint32_t                 flags,
+		IN    uint32_t                 vmdh_index,
+		INOUT gni_mem_handle_t         *mem_hndl)
 {
 	RbtStatus rc;
 	RbtIterator iter;
 	gnix_mr_cache_key_t key, *e_key;
 	gnix_mr_cache_entry_t *entry;
+	struct gnix_nic *nic;
+	gni_return_t grc;
+	int inuse_elements = atomic_get(&cache->total_elements) -
+			atomic_get(&cache->stale_elements);
+
+	if (inuse_elements > cache->attr.hard_reg_limit &&
+			cache->attr.hard_reg_limit > 0)
+		return FI_ENOSPC;
 
 	iter = rbtFind(cache->inuse, &key);
 	if (iter) {
-		rbtKeyValue(cache->inuse, &e_key, &entry);
+		rbtKeyValue(cache->inuse, iter, (void **) &e_key, (void **) &entry);
 
 		__mr_cache_entry_get(cache, entry);
 
 		goto success;
 	} else if (cache->attr.lazy_deregistration) {
 		/* if lazy deregistration is in use, we can check the stale tree */
-		iter = rbtFind(cache->stale);
+		iter = rbtFind(cache->stale, &key);
 		if (iter) {
-			rbtKeyValue(cache->stale, iter, &e_key, &entry);
+			rbtKeyValue(cache->stale, iter, (void **) &e_key,
+					(void **) &entry);
 
 			/* reset the reference count as it should be zero from
 			 *   being in the stale tree anyway
@@ -417,7 +462,7 @@ int gnix_mr_register(
 			atomic_set(&entry->ref_cnt, 1);
 
 			rbtErase(cache->stale, iter);
-			rc = rbtInsert(cache->inuse, &e_key, entry);
+			rc = rbtInsert(cache->inuse, (void *) &e_key, (void *) entry);
 			if (rc == RBT_STATUS_MEM_EXHAUSTED) {
 				__mr_cache_entry_destroy(entry);
 				return -FI_ENOMEM;
@@ -471,28 +516,32 @@ int gnix_mr_register(
 	}
 
 success:
-
 	mr->key.address = entry->key.address;
 	mr->key.length = entry->key.length;
 	*mem_hndl = entry->mem_hndl;
 	return FI_SUCCESS;
 }
 
-int gnix_mr_deregister(
-		IN gnix_mr_cache_t  *cache,
+static int gnix_mr_deregister(
+		IN gnix_mr_cache_t          *cache,
 		IN struct gnix_fid_mem_desc *mr)
 {
-	RbtStatus rc;
 	RbtIterator iter;
-	gnix_mr_cache_key_t key, *e_key;
+	gnix_mr_cache_key_t *e_key;
 	gnix_mr_cache_entry_t *entry;
+	gni_return_t grc;
 
-	/* TODO: construct the key for searching the tree */
 	iter = rbtFind(cache->inuse, &mr->key);
 	if (!iter)
 		return -FI_ENOENT;
 
-	rbtKeyValue(cache->inuse, iter, &e_key, &entry);
+	rbtKeyValue(cache->inuse, iter, (void **) &e_key, (void **) &entry);
 
-	return __mr_cache_entry_put(cache, entry);
+	grc = __mr_cache_entry_put(cache, entry);
+
+	if (grc == FI_SUCCESS &&
+			atomic_get(&cache->stale_elements) > cache->attr.hard_stale_limit)
+		gnix_mr_cache_flush(cache);
+
+	return gnixu_to_fi_errno(grc);
 }

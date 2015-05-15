@@ -114,9 +114,11 @@ void gnix_convert_mhdl_to_key(
 
 int gnix_mr_cache_init(
 		IN gnix_mr_cache_t      *cache,
-		IN gnix_mr_cache_attr_t attr);
+		IN gnix_mr_cache_attr_t *attr);
+
 int gnix_mr_cache_destroy(
 		IN gnix_mr_cache_t *cache);
+
 int gnix_mr_cache_flush(
 		IN gnix_mr_cache_t *cache);
 
