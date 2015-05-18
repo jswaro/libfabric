@@ -268,7 +268,7 @@ int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 	struct gnix_nic *nic;
 	int rc;
 
-	/* no flags are accepted at the moment */
+	/* Flags are reserved for future use and must be 0. */
 	if (flags)
 		return -FI_EBADFLAGS;
 
