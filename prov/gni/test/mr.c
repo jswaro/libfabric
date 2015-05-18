@@ -137,6 +137,7 @@ TestSuite(memory_registration_bare, .init = mr_setup, .fini = mr_teardown);
 
 TestSuite(memory_registration_cache, .init = mr_setup, .fini = mr_teardown);
 
+/* Test simple init, register and deregister */
 Test(memory_registration_bare, basic_init)
 {
 	int ret;
@@ -150,6 +151,7 @@ Test(memory_registration_bare, basic_init)
 	assert(ret == FI_SUCCESS);
 }
 
+/* Test invalid flags to fi_mr_reg */
 Test(memory_registration_bare, invalid_flags)
 {
 	int ret;
@@ -160,6 +162,7 @@ Test(memory_registration_bare, invalid_flags)
 	assert(ret == -FI_EBADFLAGS);
 }
 
+/* Test invalid access param to fi_mr_reg */
 Test(memory_registration_bare, invalid_access)
 {
 	int ret;
@@ -170,6 +173,7 @@ Test(memory_registration_bare, invalid_access)
 	assert(ret == -FI_EINVAL);
 }
 
+/* Test invalid offset param to fi_mr_reg */
 Test(memory_registration_bare, invalid_offset)
 {
 	int ret;
@@ -180,6 +184,7 @@ Test(memory_registration_bare, invalid_offset)
 	assert(ret == -FI_EINVAL);
 }
 
+/* Test invalid requested key param to fi_mr_reg */
 Test(memory_registration_bare, invalid_requested_key)
 {
 	int ret;
@@ -190,6 +195,7 @@ Test(memory_registration_bare, invalid_requested_key)
 	assert(ret == -FI_EKEYREJECTED);
 }
 
+/* Test invalid buf param to fi_mr_reg */
 Test(memory_registration_bare, invalid_buf)
 {
 	int ret;
@@ -200,6 +206,7 @@ Test(memory_registration_bare, invalid_buf)
 	assert(ret == -FI_EINVAL);
 }
 
+/* Test invalid mr_o param to fi_mr_reg */
 Test(memory_registration_bare, invalid_mr_ptr)
 {
 	int ret;
@@ -210,6 +217,7 @@ Test(memory_registration_bare, invalid_mr_ptr)
 	assert(ret == -FI_EINVAL);
 }
 
+/* Test invalid fid param to fi_mr_reg */
 Test(memory_registration_bare, invalid_fid_class)
 {
 	int ret;
@@ -226,6 +234,7 @@ Test(memory_registration_bare, invalid_fid_class)
 	dom->fid.fclass = old_class;
 }
 
+/* Test simple cache initialization */
 Test(memory_registration_cache, basic_init)
 {
 	int ret;
@@ -247,6 +256,10 @@ Test(memory_registration_cache, basic_init)
 	assert(atomic_get(&cache->stale_elements) == 1);
 }
 
+/* Test duplicate registration. Since this is a valid operation, we
+ *   provide a unique fid_mr but internally, a second reference to the same
+ *   entry is provided to prevent expensive calls to GNI_MemRegister
+ */
 Test(memory_registration_cache, duplicate_registration)
 {
 	int ret;
@@ -281,6 +294,9 @@ Test(memory_registration_cache, duplicate_registration)
 	assert(atomic_get(&cache->stale_elements) == 1);
 }
 
+/* Test registration of 1024 elements, all distinct. Cache element counts
+ *   should meet expected values
+ */
 Test(memory_registration_cache, register_1024_distinct_regions)
 {
 	int ret;
@@ -329,6 +345,9 @@ Test(memory_registration_cache, register_1024_distinct_regions)
 	assert(atomic_get(&cache->stale_elements) >= 0);
 }
 
+/* Test registration of 1024 registrations backed by the same initial
+ *   registration. There should only be a single registration in the cache
+ */
 Test(memory_registration_cache, register_1024_non_unique_regions)
 {
 	int ret;
@@ -385,6 +404,9 @@ Test(memory_registration_cache, register_1024_non_unique_regions)
 	assert(atomic_get(&cache->stale_elements) > 0);
 }
 
+/* Test registration of 128 regions that will be cycled in and out of the
+ *   inuse and stale trees. inuse + stale should never exceed 128
+ */
 Test(memory_registration_cache, cyclic_register_128_distinct_regions)
 {
 	int ret;
