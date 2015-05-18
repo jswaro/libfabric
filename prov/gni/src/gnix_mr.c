@@ -45,19 +45,19 @@
 
 /* forward declarations */
 static int gnix_mr_register(
-		IN    gnix_mr_cache_t          *cache,
-		IN    struct gnix_fid_mem_desc *mr,
-		IN    struct gnix_fid_domain   *domain,
-		IN    uint64_t                 address,
-		IN    uint64_t                 length,
-		IN    gni_cq_handle_t          dst_cq_hndl,
-		IN    uint32_t                 flags,
-		IN    uint32_t                 vmdh_index,
-		INOUT gni_mem_handle_t         *mem_hndl);
+		gnix_mr_cache_t          *cache,
+		struct gnix_fid_mem_desc *mr,
+		struct gnix_fid_domain   *domain,
+		uint64_t                 address,
+		uint64_t                 length,
+		gni_cq_handle_t          dst_cq_hndl,
+		uint32_t                 flags,
+		uint32_t                 vmdh_index,
+		gni_mem_handle_t         *mem_hndl);
 
 static int gnix_mr_deregister(
-		IN gnix_mr_cache_t          *cache,
-		IN struct gnix_fid_mem_desc *mr);
+		gnix_mr_cache_t          *cache,
+		struct gnix_fid_mem_desc *mr);
 
 static int fi_gnix_mr_close(fid_t fid);
 
@@ -98,13 +98,13 @@ static gnix_mr_cache_attr_t __default_mr_cache_attr = {
 /**
  * Sign extends the value passed into up to length parameter
  *
- * @param val  value to be sign extended
- * @param len  length to sign extend the value
- * @return     sign extended value to length, len
+ * @param[in]  val  value to be sign extended
+ * @param[in]  len  length to sign extend the value
+ * @return          sign extended value to length, len
  */
 static inline int64_t __sign_extend(
-		IN uint64_t val,
-		IN int len)
+		uint64_t val,
+		int len)
 {
 	int64_t m = 1UL << (len - 1);
 	int64_t r = (val ^ m) - m;
@@ -115,15 +115,15 @@ static inline int64_t __sign_extend(
 /**
  * Key comparison function for gnix memory registration caches
  *
- * @param x key to be inserted or found
- * @param y key to be compared against
+ * @param[in] x key to be inserted or found
+ * @param[in] y key to be compared against
  *
- * @return -1 if it should be positioned at the left, 0 if the same,
- *          1 otherwise
+ * @return    -1 if it should be positioned at the left, 0 if the same,
+ *             1 otherwise
  */
 static inline int __mr_cache_key_comp(
-		IN void *x,
-		IN void *y)
+		void *x,
+		void *y)
 {
 	gnix_mr_cache_key_t *to_insert  = (gnix_mr_cache_key_t *) x;
 	gnix_mr_cache_key_t *to_compare = (gnix_mr_cache_key_t *) y;
@@ -148,12 +148,12 @@ static inline int __mr_cache_key_comp(
  * Destroys the memory registration cache entry and deregisters the memory
  *   region with uGNI
  *
- * @var entry  a memory registration cache entry
+ * @param[in] entry  a memory registration cache entry
  *
- * @return     grc from GNI_MemDeregister
+ * @return           grc from GNI_MemDeregister
  */
 static inline int __mr_cache_entry_destroy(
-		INOUT gnix_mr_cache_entry_t *entry)
+		gnix_mr_cache_entry_t *entry)
 {
 	gni_return_t ret;
 
@@ -174,14 +174,14 @@ static inline int __mr_cache_entry_destroy(
 /**
  * Increments the reference count on a memory registration cache entry
  *
- * @var cache  gnix memory registration cache
- * @var entry  a memory registration cache entry
+ * @param[in] cache  gnix memory registration cache
+ * @param[in] entry  a memory registration cache entry
  *
- * @return     reference count for the registration
+ * @return           reference count for the registration
  */
 static inline int __mr_cache_entry_get(
-		IN gnix_mr_cache_t       *cache,
-		IN gnix_mr_cache_entry_t *entry)
+		gnix_mr_cache_t       *cache,
+		gnix_mr_cache_entry_t *entry)
 {
 	return atomic_inc(&entry->ref_cnt);
 }
@@ -189,16 +189,16 @@ static inline int __mr_cache_entry_get(
 /**
  * Decrements the reference count on a memory registration cache entry
  *
- * @var cache  gnix memory registration cache
- * @var entry  a memory registration cache entry
- * @var iter   red-black tree iterator pointing to the entry
+ * @param[in] cache  gnix memory registration cache
+ * @param[in] entry  a memory registration cache entry
+ * @param[in] iter   red-black tree iterator pointing to the entry
  *
- * @return     grc from GNI_MemDeregister
+ * @return           grc from GNI_MemDeregister
  */
 static inline int __mr_cache_entry_put(
-		IN gnix_mr_cache_t       *cache,
-		IN gnix_mr_cache_entry_t *entry,
-		IN RbtIterator           iter)
+		gnix_mr_cache_t       *cache,
+		gnix_mr_cache_entry_t *entry,
+		RbtIterator           iter)
 {
 	RbtStatus rc;
 	gni_return_t grc = GNI_RC_SUCCESS;
@@ -224,8 +224,8 @@ static inline int __mr_cache_entry_put(
 }
 
 void gnix_convert_key_to_mhdl(
-		IN    gnix_mr_key_t *key,
-		INOUT gni_mem_handle_t *mhdl)
+		gnix_mr_key_t *key,
+		gni_mem_handle_t *mhdl)
 {
 	uint64_t va = (uint64_t) __sign_extend(key->pfn << GNIX_MR_PAGE_SHIFT,
 			GNIX_MR_VA_BITS);
@@ -246,8 +246,8 @@ void gnix_convert_key_to_mhdl(
 }
 
 void gnix_convert_mhdl_to_key(
-		IN    gni_mem_handle_t *mhdl,
-		INOUT gnix_mr_key_t *key)
+		gni_mem_handle_t *mhdl,
+		gnix_mr_key_t *key)
 {
 	key->pfn = GNI_MEMHNDL_GET_VA((*mhdl)) >> GNIX_MR_PAGE_SHIFT;
 	key->mdd = GNI_MEMHNDL_GET_MDH((*mhdl));
@@ -345,7 +345,7 @@ err:
 /**
  * Closes and deallocates a libfabric memory registration
  *
- * @param fid  libfabric memory registration fid
+ * @param[in]  fid  libfabric memory registration fid
  *
  * @return     FI_SUCCESS on success
  *             -FI_EINVAL on invalid fid
@@ -353,7 +353,7 @@ err:
  *               provided fid
  *             Otherwise, GNI_RC_* ret codes converted to FI_* err codes
  */
-static int fi_gnix_mr_close(IN fid_t fid)
+static int fi_gnix_mr_close(fid_t fid)
 {
 	struct gnix_fid_mem_desc *mr;
 	gni_return_t ret;
@@ -379,7 +379,7 @@ static int fi_gnix_mr_close(IN fid_t fid)
 /**
  * Checks the sanity of cache attributes
  *
- * @param attr  attributes structure to be checked
+ * @param[in]   attr  attributes structure to be checked
  * @return      FI_SUCCESS if the attributes are valid
  *              -FI_EINVAL if the attributes are invalid
  */
@@ -399,8 +399,8 @@ static inline int __check_mr_cache_attr_sanity(gnix_mr_cache_attr_t *attr)
 }
 
 int gnix_mr_cache_init(
-		IN gnix_mr_cache_t      *cache,
-		IN gnix_mr_cache_attr_t *attr)
+		gnix_mr_cache_t      *cache,
+		gnix_mr_cache_attr_t *attr)
 {
 	gnix_mr_cache_attr_t *cache_attr = &__default_mr_cache_attr;
 
@@ -449,8 +449,7 @@ int gnix_mr_cache_init(
 	return FI_SUCCESS;
 }
 
-int gnix_mr_cache_destroy(
-		IN gnix_mr_cache_t *cache)
+int gnix_mr_cache_destroy(gnix_mr_cache_t *cache)
 {
 	if (cache->state != GNIX_MRC_STATE_READY)
 		return -FI_EINVAL;
@@ -484,8 +483,7 @@ int gnix_mr_cache_destroy(
 	return FI_SUCCESS;
 }
 
-int gnix_mr_cache_flush(
-		IN gnix_mr_cache_t *cache)
+int gnix_mr_cache_flush(gnix_mr_cache_t *cache)
 {
 	RbtIterator iter, next;
 	gnix_mr_cache_key_t *key;
@@ -526,26 +524,26 @@ int gnix_mr_cache_flush(
 /**
  * Function to register memory with the cache
  *
- * @var cache        gnix memory registration cache pointer
- * @var mr           gnix memory region descriptor pointer
- * @var domain       gnix domain pointer
- * @var address      base address of the memory region to be registered
- * @var length       length of the memory region to be registered
- * @var dst_cq_hndl  destination gni cq handle for cq event delivery
- * @var flags        gni memory registration flags
- * @var vmdh_index   desired index for the new vmdh
- * @var mem_hndl     gni memory handle pointer to written to and returned
+ * @param[in] cache        gnix memory registration cache pointer
+ * @param[in] mr           gnix memory region descriptor pointer
+ * @param[in] domain       gnix domain pointer
+ * @param[in] address      base address of the memory region to be registered
+ * @param[in] length       length of the memory region to be registered
+ * @param[in] dst_cq_hndl  destination gni cq handle for cq event delivery
+ * @param[in] flags        gni memory registration flags
+ * @param[in] vmdh_index   desired index for the new vmdh
+ * @param[in,out] mem_hndl gni memory handle pointer to written to and returned
  */
 static int gnix_mr_register(
-		IN    gnix_mr_cache_t          *cache,
-		IN    struct gnix_fid_mem_desc *mr,
-		IN    struct gnix_fid_domain   *domain,
-		IN    uint64_t                 address,
-		IN    uint64_t                 length,
-		IN    gni_cq_handle_t          dst_cq_hndl,
-		IN    uint32_t                 flags,
-		IN    uint32_t                 vmdh_index,
-		INOUT gni_mem_handle_t         *mem_hndl)
+		gnix_mr_cache_t          *cache,
+		struct gnix_fid_mem_desc *mr,
+		struct gnix_fid_domain   *domain,
+		uint64_t                 address,
+		uint64_t                 length,
+		gni_cq_handle_t          dst_cq_hndl,
+		uint32_t                 flags,
+		uint32_t                 vmdh_index,
+		gni_mem_handle_t         *mem_hndl)
 {
 	RbtStatus rc;
 	RbtIterator iter;
@@ -659,8 +657,8 @@ success:
 /**
  * Function to deregister memory in the cache
  *
- * @var cache  gnix memory registration cache pointer
- * @var mr     gnix memory registration descriptor pointer
+ * @param[in]  cache  gnix memory registration cache pointer
+ * @param[in]  mr     gnix memory registration descriptor pointer
  *
  * @return     FI_SUCCESS on success
  *             -FI_ENOENT if there isn't an active memory registration
@@ -668,8 +666,8 @@ success:
  *             GNI_RC_* return codes for potential calls to GNI_MemDeregister
  */
 static int gnix_mr_deregister(
-		IN gnix_mr_cache_t          *cache,
-		IN struct gnix_fid_mem_desc *mr)
+		gnix_mr_cache_t          *cache,
+		struct gnix_fid_mem_desc *mr)
 {
 	RbtIterator iter;
 	gnix_mr_cache_key_t *e_key;

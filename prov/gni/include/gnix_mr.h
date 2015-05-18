@@ -162,66 +162,65 @@ typedef struct gnix_mr_cache {
 } gnix_mr_cache_t;
 
 /**
- * Converts a libfabric key to a gni memory handle
+ * @brief Converts a libfabric key to a gni memory handle
  *
- * @param key   libfabric memory region key
- * @param mhdl  gni memory handle
+ * @param[in]     key   libfabric memory region key
+ * @param[in,out] mhdl  gni memory handle
  */
 void gnix_convert_key_to_mhdl(
-		IN    gnix_mr_key_t    *key,
-		INOUT gni_mem_handle_t *mhdl);
+		gnix_mr_key_t    *key,
+		gni_mem_handle_t *mhdl);
 
 /**
- * Converts a gni memory handle to a libfabric key
+ * @brief Converts a gni memory handle to a libfabric key
  *
- * @param mhdl  gni memory handle
- * @param key   libfabric memory region key
+ * @param[in]     mhdl  gni memory handle
+ * @param[in,out] key   libfabric memory region key
  */
 void gnix_convert_mhdl_to_key(
-		IN    gni_mem_handle_t *mhdl,
-		INOUT gnix_mr_key_t    *key);
+		gni_mem_handle_t *mhdl,
+		gnix_mr_key_t    *key);
 
 /**
- * Initializes a gnix memory registration cache
+ * @brief Initializes a gnix memory registration cache
  *
- * @param cache  a gnix memory registration cache
- * @param attr   a set of attributes to apply to the cache
+ * @param[in] cache  a gnix memory registration cache
+ * @param[in] attr   a set of attributes to apply to the cache
  *
- * @return       FI_SUCCESS on success
- *               -FI_EINVAL if an invalid cache pointer, or invalid set of
- *                 attributes has been passed into the function
- *               -FI_ENOMEM if there wasn't sufficient memory to allocate
- *                 internal data structures
+ * @return           FI_SUCCESS on success
+ *                   -FI_EINVAL if an invalid cache pointer, or invalid set of
+ *                     attributes has been passed into the function
+ *                   -FI_ENOMEM if there wasn't sufficient memory to allocate
+ *                     internal data structures
  */
 int gnix_mr_cache_init(
-		IN gnix_mr_cache_t      *cache,
-		IN gnix_mr_cache_attr_t *attr);
+		gnix_mr_cache_t      *cache,
+		gnix_mr_cache_attr_t *attr);
 
 /**
- * Destroys a gnix memory registration cache. Flushes stale memory
- *   registrations if the hard limit for stale registrations has been exceeded
+ * @brief Destroys a gnix memory registration cache. Flushes stale memory
+ *        registrations if the hard limit for stale registrations has been
+ *        exceeded
  *
- * @param cache  a gnix memory registration cache
+ * @param[in] cache  a gnix memory registration cache
  *
- * @return       FI_SUCCESS on success
- *               -FI_EINVAL if an invalid cache pointer has been passed into
- *                 the function
- *               -FI_EAGAIN if the cache still contains memory registrations
- *                 that have not yet been deregistered
+ * @return           FI_SUCCESS on success
+ *                   -FI_EINVAL if an invalid cache pointer has been passed
+ *                     into the function
+ *                   -FI_EAGAIN if the cache still contains memory
+ *                     registrations that have not yet been deregistered
  */
-int gnix_mr_cache_destroy(
-		IN gnix_mr_cache_t *cache);
+int gnix_mr_cache_destroy(gnix_mr_cache_t *cache);
 
 /**
- * Flushes stale memory registrations from a memory registration cache.
+ * @brief Flushes stale memory registrations from a memory registration cache.
  *
- * @param cache  a gnix memory registration cache
+ * @param[in] cache  a gnix memory registration cache
  *
- * @return       FI_SUCCESS on success
- *               -FI_EINVAL if an invalid cache pointer has been passed into
- *                 the function
+ * @return           FI_SUCCESS on success
+ *                   -FI_EINVAL if an invalid cache pointer has been passed
+ *                     into the function
  */
-int gnix_mr_cache_flush(
-		IN gnix_mr_cache_t *cache);
+int gnix_mr_cache_flush(gnix_mr_cache_t *cache);
 
 #endif /* GNIX_MR_H_ */
