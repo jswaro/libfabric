@@ -171,53 +171,31 @@ static int table_remove(struct gnix_fid_av *int_av, fi_addr_t *fi_addr,
 	return ret;
 }
 
+/*
+ * table_lookup(): Translate fi_addr_t to struct gnix_address.
+ */
 static int table_lookup(struct gnix_fid_av *int_av, fi_addr_t fi_addr,
-			void *addr, size_t *addrlen, size_t struct_copy_size)
+			struct gnix_address *addr, size_t *addrlen)
 {
-	struct gnix_address *found = NULL;
-	struct gnix_ep_name *out = NULL;
-	struct gnix_addr_entry *entry = NULL;
-	int ret = FI_SUCCESS;
-	size_t copy_size;
 	size_t index;
-
-	copy_size = struct_copy_size;
-
-	if (*addrlen < copy_size) {
-		copy_size = *addrlen;
-		*addrlen = sizeof(*out);
-		ret = -FI_ETOOSMALL;
-	}
-
-	if (!addr) {
-		if (copy_size >= *addrlen) {
-			ret = -FI_EINVAL;
-		}
-
-		goto err;
-	}
+	struct gnix_addr_entry *entry;
 
 	index = (size_t)fi_addr;
 	if (index > int_av->count) {
-		ret = -FI_EINVAL;
-		goto err;
+		return -FI_EINVAL;
 	}
 
 	assert(int_av->table);
 	entry = &int_av->table[index];
 
-	if (entry && entry->valid) {
-		found = entry->addr;
-	} else {
-		ret = -FI_EINVAL;
-		goto err;
+	if (!(entry && entry->valid)) {
+		return -FI_EINVAL;
 	}
 
-	out = container_of(found, struct gnix_ep_name, gnix_addr);
-	memcpy(addr, out, copy_size);
+	memcpy(addr, entry->addr, MIN(*addrlen, sizeof(*addr)));
+	*addrlen = sizeof(*addr);
 
-err:
-	return ret;
+	return FI_SUCCESS;
 }
 
 
@@ -256,73 +234,40 @@ static int map_remove(struct gnix_fid_av *int_av, fi_addr_t *fi_addr,
  * TODO:
  * 1.) Check if given item was actually inserted.
  */
-static int map_lookup(struct gnix_fid_av *int_av, fi_addr_t fi_addr, void *addr,
-		      size_t *addrlen, size_t struct_copy_size)
+static int map_lookup(struct gnix_fid_av *int_av, fi_addr_t fi_addr,
+		      struct gnix_address *addr, size_t *addrlen)
 {
-	struct gnix_address *given = NULL;
-	struct gnix_ep_name out = {{0}};
-	int ret = FI_SUCCESS;
-	size_t copy_size;
+	memcpy(addr, (void *)&fi_addr, MIN(*addrlen, sizeof(*addr)));
+	*addrlen = sizeof(*addr);
 
-	GNIX_TRACE(FI_LOG_AV, "\n");
-
-	copy_size = struct_copy_size;
-
-	if (*addrlen < copy_size) {
-		copy_size = *addrlen;
-		*addrlen = sizeof(out);
-		ret = -FI_ETOOSMALL;
-	}
-
-	if (!addr) {
-		if (copy_size >= *addrlen) {
-			ret = -FI_EINVAL;
-		}
-
-		goto err;
-	}
-
-	given = (struct gnix_address *) &fi_addr;
-
-	out.gnix_addr.device_addr = given->device_addr;
-	out.gnix_addr.cdm_id = given->cdm_id;
-	out.cookie = int_av->domain->cookie;
-
-	memcpy(addr, &out, copy_size);
-
-err:
-	return ret;
+	return FI_SUCCESS;
 }
 
 /*******************************************************************************
  * FI_AV API implementations.
  ******************************************************************************/
-static int _gnix_av_lookup(struct fid_av *av, fi_addr_t fi_addr, void *addr,
-			  size_t *addrlen, size_t struct_copy_size)
+
+int _gnix_av_lookup(struct gnix_fid_av *gnix_av, fi_addr_t fi_addr,
+		    struct gnix_address *addr, size_t *addrlen)
 {
-	struct gnix_fid_av *int_av = NULL;
 	int ret = FI_SUCCESS;
 
-	if (!av) {
+	if (!gnix_av) {
 		ret = -FI_EINVAL;
 		goto err;
 	}
 
-	int_av = container_of(av, struct gnix_fid_av, av_fid);
-
-	if (!int_av) {
+	if (!gnix_av) {
 		ret = -FI_EINVAL;
 		goto err;
 	}
 
-	switch (int_av->type) {
+	switch (gnix_av->type) {
 	case FI_AV_TABLE:
-		ret = table_lookup(int_av, fi_addr, addr, addrlen,
-				   struct_copy_size);
+		ret = table_lookup(gnix_av, fi_addr, addr, addrlen);
 		break;
 	case FI_AV_MAP:
-		ret = map_lookup(int_av, fi_addr, addr, addrlen,
-				 struct_copy_size);
+		ret = map_lookup(gnix_av, fi_addr, addr, addrlen);
 		break;
 	default:
 		ret = -FI_EINVAL;
@@ -333,11 +278,48 @@ err:
 	return ret;
 }
 
-static int gnix_av_lookup(struct fid_av *av, fi_addr_t fi_addr, void *addr,
-			 size_t *addrlen)
+int _gnix_av_addr_retrieve(struct fid_av *av, fi_addr_t fi_addr,
+			   struct gnix_address *gnix_addr)
 {
-	return _gnix_av_lookup(av, fi_addr, addr, addrlen,
-			       sizeof(struct gnix_ep_name));
+	struct gnix_fid_av *gnix_av;
+	size_t len = sizeof(*gnix_addr);
+
+	assert(av);
+	assert(gnix_addr);
+
+	gnix_av = container_of(av, struct gnix_fid_av, av_fid);
+
+	return _gnix_av_lookup(gnix_av, fi_addr, gnix_addr, &len);
+}
+
+static int gnix_av_lookup(struct fid_av *av, fi_addr_t fi_addr, void *addr,
+			  size_t *addrlen)
+{
+	struct gnix_fid_av *gnix_av;
+	struct gnix_ep_name ep_name;
+	size_t gnix_addr_len = sizeof(struct gnix_address);
+	int rc;
+
+	if (!av || !addr || *addrlen) {
+		return -FI_EINVAL;
+	}
+
+	gnix_av = container_of(av, struct gnix_fid_av, av_fid);
+
+	rc = _gnix_av_lookup(gnix_av, fi_addr, &ep_name.gnix_addr,
+			     &gnix_addr_len);
+	if (rc != FI_SUCCESS) {
+		GNIX_INFO(FI_LOG_AV, "_gnix_av_lookup failed: %d\n", rc);
+		return rc;
+	}
+
+	ep_name.name_type = 0;
+	ep_name.cookie = gnix_av->domain->cookie;
+
+	memcpy(addr, (void *)&ep_name, MIN(*addrlen, sizeof(ep_name)));
+	*addrlen = sizeof(ep_name);
+
+	return FI_SUCCESS;
 }
 
 /*
@@ -548,15 +530,6 @@ err:
 	return ret;
 }
 
-int _gnix_av_addr_retrieve(struct fid_av *av, fi_addr_t fi_addr,
-			  fi_addr_t *real_addr)
-{
-	size_t size = sizeof(fi_addr_t);
-	int ret = FI_SUCCESS;
-
-	ret = _gnix_av_lookup(av, fi_addr, real_addr, &size, size);
-	return ret;
-}
 /*******************************************************************************
  * FI_OPS_* data structures.
  ******************************************************************************/

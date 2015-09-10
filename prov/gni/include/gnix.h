@@ -386,13 +386,29 @@ enum gnix_fab_req_type {
 };
 
 struct gnix_fab_req_rma {
-	uint64_t rem_addr;
-	uint64_t rem_mr_key;
+	uint64_t                 loc_addr;
+	struct gnix_fid_mem_desc *loc_md;
+	size_t                   len;
+	uint64_t                 rem_addr;
+	uint64_t                 rem_mr_key;
+	uint64_t                 imm;
 };
 
 struct gnix_fab_req_msg {
-	uint64_t tag;
-	uint64_t mask_bits;
+	struct gnix_tag_list_element tle;
+	uint64_t                     send_addr;
+	size_t                       send_len;
+	struct gnix_fid_mem_desc     *send_md;
+	uint64_t                     send_flags;
+	uint64_t                     recv_addr;
+	size_t                       recv_len;
+	struct gnix_fid_mem_desc     *recv_md;
+	uint64_t                     recv_flags; /* protocol, API info */
+	uint64_t                     tag;
+	uint64_t                     ignore;
+	uint64_t                     imm;
+	gni_mem_handle_t             rma_mdh;
+	uint64_t                     rma_id;
 };
 
 /*
@@ -403,31 +419,19 @@ struct gnix_fab_req_msg {
 
 struct gnix_fab_req {
 	struct slist_entry        slist;
-	uint64_t tag;
-	uint64_t ignore_bits;
-	struct gnix_address addr;
+	struct gnix_address       addr;
 	enum gnix_fab_req_type    type;
 	struct gnix_fid_ep        *gnix_ep;
 	void                      *user_context;
-	/* matched_rcv_fab_req only applicable to GNIX_FAB_RQ_RECV type */
-	struct gnix_fab_req       *matched_rcv_fab_req;
-	/* current point in the buffer for next transfer chunk -
-	   case of long messages or rdma requests greater than 4 GB */
-	void     *cur_pos;
-	struct gnix_vc *vc;
-	int (*send_fn)(void *);
-	void *completer_data;
-	int (*completer_fn)(void *);
-	uint64_t cq_flags;
-	int modes;
-	int retries;
+	struct gnix_vc            *vc;
+	int                       (*send_fn)(void *);
+	void                      *completer_data;
+	int                       (*completer_fn)(void *);
+	int                       modes;
+	int                       retries;
+	uint64_t                  flags;
+
 	/* common to rma/amo/msg */
-	uint64_t loc_addr;
-	void *loc_md;
-	uint64_t imm;
-	size_t len;
-	uint64_t flags;
-	struct gnix_tag_list_element tle;
 	union {
 		struct gnix_fab_req_rma rma;
 		struct gnix_fab_req_msg msg;

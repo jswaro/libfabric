@@ -618,7 +618,7 @@ static int gnix_ep_control(fid_t fid, int command, void *arg)
 		if (ep->type == FI_EP_RDM) {
 			dom = ep->domain;
 			for (i = 0; i < dom->fabric->n_wc_dgrams; i++) {
-				ret = _gnix_vc_alloc(ep, FI_ADDR_UNSPEC, &vc);
+				ret = _gnix_vc_alloc(ep, NULL, &vc);
 				if (ret != FI_SUCCESS) {
 					GNIX_WARN(FI_LOG_EP_CTRL,
 				     "_gnix_vc_alloc call returned %d\n", ret);

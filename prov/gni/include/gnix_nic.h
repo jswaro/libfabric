@@ -156,32 +156,31 @@ struct gnix_nic {
 /**
  * gnix_smsg_hdr  - first part of any SMSG message for app data
  *
- * @var len        length in bytes of the incoming message
  * @var flags      flag bits from send side that are needed at
  *                 rcv side (e.g. FI_REMOTE_CQ_DATA)
  * @var imm        immediate data associated with this message
  * @var msg_tag    libfabric tag associated with this message
+ * @var len        length in bytes of the incoming message
  */
-struct gnix_smsg_hdr {
-	size_t len;
+struct gnix_smsg_eager_hdr {
 	uint64_t flags;
 	uint64_t imm;
 	uint64_t msg_tag;
+	size_t len;
 };
 
-/**
- * gnix_smsg_descriptor - descriptor to track GNI SMSG messages
- *                       on the send side
- *
- * @var hdr        imbedded gni_smsg_hdr struct
- * @var buf        pointer to the application's send buffer or
- *                 to an GNIX provider internal inject buffer
- * @var tag        the GNI_SmsgSendWTag used for this message
- */
-struct gnix_smsg_descriptor {
-	struct gnix_smsg_hdr hdr;
-	const void  *buf;         /* may point to inject buffer */
-	uint8_t  tag;
+struct gnix_smsg_rndzv_start_hdr {
+	uint64_t flags;
+	uint64_t imm;
+	uint64_t msg_tag;
+	gni_mem_handle_t mdh;
+	uint64_t addr;
+	size_t len;
+	uint64_t req_addr;
+};
+
+struct gnix_smsg_rndzv_fin_hdr {
+	uint64_t req_addr;
 };
 
 /**
@@ -198,8 +197,10 @@ struct gnix_smsg_descriptor {
 struct gnix_tx_descriptor {
 	struct dlist_entry          list;
 	union {
-		gni_post_descriptor_t       gni_desc;
-		struct gnix_smsg_descriptor smsg_desc;
+		gni_post_descriptor_t            gni_desc;
+		struct gnix_smsg_eager_hdr       eager_hdr;
+		struct gnix_smsg_rndzv_start_hdr rndzv_start_hdr;
+		struct gnix_smsg_rndzv_fin_hdr   rndzv_fin_hdr;
 	};
 	struct gnix_fab_req *req;
 	int  (*completer_fn)(void *);

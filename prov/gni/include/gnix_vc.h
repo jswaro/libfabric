@@ -128,7 +128,7 @@ struct gnix_vc {
  *                        struct is to be returned.
  * @return FI_SUCCESS on success, -FI_ENOMEM if allocation of vc struct fails,
  */
-int _gnix_vc_alloc(struct gnix_fid_ep *ep_priv, fi_addr_t dest_addr,
+int _gnix_vc_alloc(struct gnix_fid_ep *ep_priv, struct gnix_address *dest_addr,
 			struct gnix_vc **vc);
 
 /**
