@@ -62,7 +62,7 @@ static inline struct gnix_fab_req *__to_gnix_fab_req(
 {
 	struct gnix_fab_req *req;
 
-	req = container_of(elem, struct gnix_fab_req, tle);
+	req = container_of(elem, struct gnix_fab_req, msg.tle);
 
 	return req;
 }
@@ -100,12 +100,12 @@ int _gnix_req_matches_params(
 	 */
 	if ((flags & FI_CLAIM) && (flags & FI_PEEK))
 		valid_request = (context != NULL &&
-				context != req->tle.context);
+				context != req->msg.tle.context);
 	else if ((flags & FI_CLAIM) && !(flags & FI_PEEK))
-		valid_request = (req->tle.context != NULL &&
-				context == req->tle.context);
+		valid_request = (req->msg.tle.context != NULL &&
+				context == req->msg.tle.context);
 	else
-		valid_request = req->tle.context == NULL;
+		valid_request = req->msg.tle.context == NULL;
 
 	/* shortcut */
 	if (!valid_request)
@@ -121,7 +121,7 @@ int _gnix_req_matches_params(
 		valid_request &= __req_matches_addr_params(&req->addr, addr);
 	}
 
-	return valid_request && ((req->tag & ~ignore) == (tag & ~ignore));
+	return valid_request && ((req->msg.tag & ~ignore) == (tag & ~ignore));
 }
 
 static int __req_matches_context(struct slist_entry *entry, const void *arg)
@@ -145,7 +145,7 @@ int _gnix_match_posted_tag(struct slist_entry *entry, const void *arg)
 	tle = (struct gnix_tag_list_element *) entry;
 	req = __to_gnix_fab_req(tle);
 
-	return _gnix_req_matches_params(req, s_elem->tag, req->ignore_bits,
+	return _gnix_req_matches_params(req, s_elem->tag, req->msg.ignore,
 			s_elem->flags, s_elem->context,
 			s_elem->use_src_addr_matching,
 			s_elem->addr, 1);
@@ -422,7 +422,7 @@ static int __gnix_tag_list_insert_tag(
 {
 	struct gnix_tag_list_element *element;
 
-	element = &req->tle;
+	element = &req->msg.tle;
 	element->free.next = NULL;
 	element->context = NULL;
 	slist_insert_tail(&element->free, &ts->list.list);
@@ -505,9 +505,9 @@ int _gnix_insert_tag(
 
 	GNIX_INFO(FI_LOG_EP_CTRL, "inserting a message by tag, "
 				"ts=%p tag=%llx req=%p\n", ts, tag, req);
-	req->tag = tag;
+	req->msg.tag = tag;
 	if (ts->match_func == _gnix_match_posted_tag) {
-		req->ignore_bits = ignore;
+		req->msg.ignore = ignore;
 	}
 
 	ret = ts->ops->insert_tag(ts, tag, req);
@@ -560,7 +560,7 @@ static struct gnix_fab_req *__peek_by_tag_and_addr(
 	ret =  ts->ops->peek_tag(ts, tag, ignore, flags, context, addr);
 
 	if (ret != NULL && (flags & FI_CLAIM)) {
-		ret->tle.context = context;
+		ret->msg.tle.context = context;
 	}
 
 	GNIX_INFO(FI_LOG_EP_CTRL, "ret=%p\n", ret);

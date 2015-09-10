@@ -57,7 +57,7 @@
 
 #include <criterion/criterion.h>
 
-#if 1
+#if 0
 #define dbg_printf(...)
 #else
 #define dbg_printf(...) fprintf(stderr, __VA_ARGS__); fflush(stderr)
@@ -74,7 +74,7 @@ size_t gni_addr[2];
 static struct fid_cq *msg_cq[2];
 static struct fi_cq_attr cq_attr;
 
-#define BUF_SZ (8*1024)
+#define BUF_SZ (1<<20)
 char *target;
 char *source;
 struct fid_mr *rem_mr, *loc_mr;
@@ -270,8 +270,9 @@ TestSuite(rdm_sr, .init = rdm_sr_setup, .fini = rdm_sr_teardown,
 void do_send(int len)
 {
 	int ret;
+	int source_done = 0, dest_done = 0;
+	struct fi_cq_entry s_cqe, d_cqe;
 	ssize_t sz;
-	struct fi_cq_entry cqe;
 
 	rdm_sr_init_data(source, len, 0xab);
 	rdm_sr_init_data(target, len, 0);
@@ -282,23 +283,22 @@ void do_send(int len)
 	sz = fi_recv(ep[1], target, len, rem_mr, gni_addr[0], source);
 	cr_assert_eq(sz, 0);
 
-	while ((ret = fi_cq_read(msg_cq[0], &cqe, 1)) == -FI_EAGAIN) {
-		pthread_yield();
-	}
+	/* need to progress both CQs simultaneously for rendezvous */
+	do {
+		ret = fi_cq_read(msg_cq[0], &s_cqe, 1);
+		if (ret == 1) {
+			source_done = 1;
+		}
+		ret = fi_cq_read(msg_cq[1], &d_cqe, 1);
+		if (ret == 1) {
+			dest_done = 1;
+		}
+	} while (!(source_done && dest_done));
 
-	cr_assert_eq(ret, 1);
-	cr_assert_eq((uint64_t)cqe.op_context, (uint64_t)target);
+	cr_assert_eq((uint64_t)s_cqe.op_context, (uint64_t)target);
+	cr_assert_eq((uint64_t)d_cqe.op_context, (uint64_t)source);
 
-	dbg_printf("got send context event!\n");
-
-	while ((ret = fi_cq_read(msg_cq[1], &cqe, 1)) == -FI_EAGAIN) {
-		pthread_yield();
-	}
-
-	cr_assert_eq(ret, 1);
-	cr_assert_eq((uint64_t)cqe.op_context, (uint64_t)source);
-
-	dbg_printf("got recv context event!\n");
+	dbg_printf("got context events!\n");
 
 	cr_assert(rdm_sr_check_data(source, target, len), "Data mismatch");
 }
@@ -315,8 +315,9 @@ ssize_t fi_sendv(struct fid_ep *ep, const struct iovec *iov,
 void do_sendv(int len)
 {
 	int ret;
+	int source_done = 0, dest_done = 0;
+	struct fi_cq_entry s_cqe, d_cqe;
 	ssize_t sz;
-	struct fi_cq_entry cqe;
 	struct iovec iov;
 
 	iov.iov_base = source;
@@ -331,23 +332,22 @@ void do_sendv(int len)
 	sz = fi_recv(ep[1], target, len, rem_mr, gni_addr[0], source);
 	cr_assert_eq(sz, 0);
 
-	while ((ret = fi_cq_read(msg_cq[0], &cqe, 1)) == -FI_EAGAIN) {
-		pthread_yield();
-	}
+	/* need to progress both CQs simultaneously for rendezvous */
+	do {
+		ret = fi_cq_read(msg_cq[0], &s_cqe, 1);
+		if (ret == 1) {
+			source_done = 1;
+		}
+		ret = fi_cq_read(msg_cq[1], &d_cqe, 1);
+		if (ret == 1) {
+			dest_done = 1;
+		}
+	} while (!(source_done && dest_done));
 
-	cr_assert_eq(ret, 1);
-	cr_assert_eq((uint64_t)cqe.op_context, (uint64_t)target);
+	cr_assert_eq((uint64_t)s_cqe.op_context, (uint64_t)target);
+	cr_assert_eq((uint64_t)d_cqe.op_context, (uint64_t)source);
 
-	dbg_printf("got send context event!\n");
-
-	while ((ret = fi_cq_read(msg_cq[1], &cqe, 1)) == -FI_EAGAIN) {
-		pthread_yield();
-	}
-
-	cr_assert_eq(ret, 1);
-	cr_assert_eq((uint64_t)cqe.op_context, (uint64_t)source);
-
-	dbg_printf("got recv context event!\n");
+	dbg_printf("got context events!\n");
 
 	cr_assert(rdm_sr_check_data(source, target, len), "Data mismatch");
 }
@@ -365,7 +365,8 @@ void do_sendmsg(int len)
 {
 	int ret;
 	ssize_t sz;
-	struct fi_cq_entry cqe;
+	int source_done = 0, dest_done = 0;
+	struct fi_cq_entry s_cqe, d_cqe;
 	struct fi_msg msg;
 	struct iovec iov;
 
@@ -388,23 +389,22 @@ void do_sendmsg(int len)
 	sz = fi_recv(ep[1], target, len, rem_mr, gni_addr[0], source);
 	cr_assert_eq(sz, 0);
 
-	while ((ret = fi_cq_read(msg_cq[0], &cqe, 1)) == -FI_EAGAIN) {
-		pthread_yield();
-	}
+	/* need to progress both CQs simultaneously for rendezvous */
+	do {
+		ret = fi_cq_read(msg_cq[0], &s_cqe, 1);
+		if (ret == 1) {
+			source_done = 1;
+		}
+		ret = fi_cq_read(msg_cq[1], &d_cqe, 1);
+		if (ret == 1) {
+			dest_done = 1;
+		}
+	} while (!(source_done && dest_done));
 
-	cr_assert_eq(ret, 1);
-	cr_assert_eq((uint64_t)cqe.op_context, (uint64_t)target);
+	cr_assert_eq((uint64_t)s_cqe.op_context, (uint64_t)target);
+	cr_assert_eq((uint64_t)d_cqe.op_context, (uint64_t)source);
 
-	dbg_printf("got send context event!\n");
-
-	while ((ret = fi_cq_read(msg_cq[1], &cqe, 1)) == -FI_EAGAIN) {
-		pthread_yield();
-	}
-
-	cr_assert_eq(ret, 1);
-	cr_assert_eq((uint64_t)cqe.op_context, (uint64_t)source);
-
-	dbg_printf("got recv context event!\n");
+	dbg_printf("got context events!\n");
 
 	cr_assert(rdm_sr_check_data(source, target, len), "Data mismatch");
 }
@@ -459,7 +459,8 @@ void do_senddata(int len)
 {
 	int ret;
 	ssize_t sz;
-	struct fi_cq_entry cqe;
+	int source_done = 0, dest_done = 0;
+	struct fi_cq_entry s_cqe, d_cqe;
 
 	rdm_sr_init_data(source, len, 0xab);
 	rdm_sr_init_data(target, len, 0);
@@ -471,24 +472,22 @@ void do_senddata(int len)
 	sz = fi_recv(ep[1], target, len, rem_mr, gni_addr[0], source);
 	cr_assert_eq(sz, 0);
 
-	while ((ret = fi_cq_read(msg_cq[0], &cqe, 1)) == -FI_EAGAIN) {
-		pthread_yield();
-	}
+	/* need to progress both CQs simultaneously for rendezvous */
+	do {
+		ret = fi_cq_read(msg_cq[0], &s_cqe, 1);
+		if (ret == 1) {
+			source_done = 1;
+		}
+		ret = fi_cq_read(msg_cq[1], &d_cqe, 1);
+		if (ret == 1) {
+			dest_done = 1;
+		}
+	} while (!(source_done && dest_done));
 
-	cr_assert_eq(ret, 1);
-	cr_assert_eq((uint64_t)cqe.op_context, (uint64_t)target);
+	cr_assert_eq((uint64_t)s_cqe.op_context, (uint64_t)target);
+	cr_assert_eq((uint64_t)d_cqe.op_context, (uint64_t)source);
 
-	dbg_printf("got send context event!\n");
-
-	/* TODO get REMOTE_CQ_DATA */
-	while ((ret = fi_cq_read(msg_cq[1], &cqe, 1)) == -FI_EAGAIN) {
-		pthread_yield();
-	}
-
-	cr_assert_eq(ret, 1);
-	cr_assert_eq((uint64_t)cqe.op_context, (uint64_t)source);
-
-	dbg_printf("got recv context event!\n");
+	dbg_printf("got context events!\n");
 
 	cr_assert(rdm_sr_check_data(source, target, len), "Data mismatch");
 }
@@ -543,7 +542,8 @@ void do_recvv(int len)
 {
 	int ret;
 	ssize_t sz;
-	struct fi_cq_entry cqe;
+	int source_done = 0, dest_done = 0;
+	struct fi_cq_entry s_cqe, d_cqe;
 	struct iovec iov;
 
 	rdm_sr_init_data(source, len, 0xab);
@@ -558,23 +558,22 @@ void do_recvv(int len)
 	sz = fi_recvv(ep[1], &iov, (void **)&rem_mr, 1, gni_addr[0], source);
 	cr_assert_eq(sz, 0);
 
-	while ((ret = fi_cq_read(msg_cq[0], &cqe, 1)) == -FI_EAGAIN) {
-		pthread_yield();
-	}
+	/* need to progress both CQs simultaneously for rendezvous */
+	do {
+		ret = fi_cq_read(msg_cq[0], &s_cqe, 1);
+		if (ret == 1) {
+			source_done = 1;
+		}
+		ret = fi_cq_read(msg_cq[1], &d_cqe, 1);
+		if (ret == 1) {
+			dest_done = 1;
+		}
+	} while (!(source_done && dest_done));
 
-	cr_assert_eq(ret, 1);
-	cr_assert_eq((uint64_t)cqe.op_context, (uint64_t)target);
+	cr_assert_eq((uint64_t)s_cqe.op_context, (uint64_t)target);
+	cr_assert_eq((uint64_t)d_cqe.op_context, (uint64_t)source);
 
-	dbg_printf("got send context event!\n");
-
-	while ((ret = fi_cq_read(msg_cq[1], &cqe, 1)) == -FI_EAGAIN) {
-		pthread_yield();
-	}
-
-	cr_assert_eq(ret, 1);
-	cr_assert_eq((uint64_t)cqe.op_context, (uint64_t)source);
-
-	dbg_printf("got recv context event!\n");
+	dbg_printf("got context events!\n");
 
 	cr_assert(rdm_sr_check_data(source, target, len), "Data mismatch");
 }
@@ -592,7 +591,8 @@ void do_recvmsg(int len)
 {
 	int ret;
 	ssize_t sz;
-	struct fi_cq_entry cqe;
+	int source_done = 0, dest_done = 0;
+	struct fi_cq_entry s_cqe, d_cqe;
 	struct fi_msg msg;
 	struct iovec iov;
 
@@ -615,23 +615,22 @@ void do_recvmsg(int len)
 	sz = fi_recvmsg(ep[1], &msg, 0);
 	cr_assert_eq(sz, 0);
 
-	while ((ret = fi_cq_read(msg_cq[0], &cqe, 1)) == -FI_EAGAIN) {
-		pthread_yield();
-	}
+	/* need to progress both CQs simultaneously for rendezvous */
+	do {
+		ret = fi_cq_read(msg_cq[0], &s_cqe, 1);
+		if (ret == 1) {
+			source_done = 1;
+		}
+		ret = fi_cq_read(msg_cq[1], &d_cqe, 1);
+		if (ret == 1) {
+			dest_done = 1;
+		}
+	} while (!(source_done && dest_done));
 
-	cr_assert_eq(ret, 1);
-	cr_assert_eq((uint64_t)cqe.op_context, (uint64_t)target);
+	cr_assert_eq((uint64_t)s_cqe.op_context, (uint64_t)target);
+	cr_assert_eq((uint64_t)d_cqe.op_context, (uint64_t)source);
 
-	dbg_printf("got send context event!\n");
-
-	while ((ret = fi_cq_read(msg_cq[1], &cqe, 1)) == -FI_EAGAIN) {
-		pthread_yield();
-	}
-
-	cr_assert_eq(ret, 1);
-	cr_assert_eq((uint64_t)cqe.op_context, (uint64_t)source);
-
-	dbg_printf("got recv context event!\n");
+	dbg_printf("got context events!\n");
 
 	cr_assert(rdm_sr_check_data(source, target, len), "Data mismatch");
 }

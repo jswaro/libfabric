@@ -236,10 +236,7 @@ try_again:
 				   gnix_tdesc->completer_fn(gnix_tdesc);
 				if (ret)
 					goto err;
-                        }
-                        ret = _gnix_nic_tx_free(nic, gnix_tdesc);
-			if (ret)
-				goto err;
+			}
 		}
 		break;
 

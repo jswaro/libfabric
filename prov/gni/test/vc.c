@@ -54,6 +54,7 @@
 #include "gnix_nic.h"
 #include "gnix_cm_nic.h"
 #include "gnix_hashtable.h"
+#include "gnix_av.h"
 
 #include <criterion/criterion.h>
 
@@ -64,13 +65,16 @@ static struct fid_av *av;
 static struct fi_info *hints;
 static struct fi_info *fi;
 void *ep_name[2];
-size_t gni_addr[2];
+fi_addr_t gni_addr[2];
+struct gnix_address gnix_addr[2];
+size_t gnix_addrlen[2];
 
 void vc_setup(void)
 {
 	int ret = 0;
 	struct fi_av_attr attr;
 	size_t addrlen = 0;
+	struct gnix_fid_av *gnix_av;
 
 	hints = fi_allocinfo();
 	cr_assert(hints, "fi_allocinfo");
@@ -94,6 +98,8 @@ void vc_setup(void)
 
 	ret = fi_av_open(dom, &attr, &av, NULL);
 	cr_assert(!ret, "fi_av_open");
+
+	gnix_av = container_of(av, struct gnix_fid_av, av_fid);
 
 	ret = fi_endpoint(dom, fi, &ep[0], NULL);
 	cr_assert(!ret, "fi_endpoint");
@@ -120,9 +126,17 @@ void vc_setup(void)
 				NULL);
 	cr_assert(ret == 1);
 
+	ret = _gnix_av_lookup(gnix_av, gni_addr[0], &gnix_addr[0], &addrlen);
+	cr_assert(ret == FI_SUCCESS);
+	cr_assert(addrlen == sizeof(struct gnix_address));
+
 	ret = fi_av_insert(av, ep_name[1], 1, &gni_addr[1], 0,
 				NULL);
 	cr_assert(ret == 1);
+
+	ret = _gnix_av_lookup(gnix_av, gni_addr[1], &gnix_addr[1], &addrlen);
+	cr_assert(ret == FI_SUCCESS);
+	cr_assert(addrlen == sizeof(struct gnix_address));
 
 	ret = fi_ep_bind(ep[0], &av->fid, 0);
 	cr_assert(!ret, "fi_ep_bind");
@@ -171,10 +185,10 @@ Test(vc_management, vc_alloc_simple)
 
 	ep_priv = container_of(ep[0], struct gnix_fid_ep, ep_fid);
 
-	ret = _gnix_vc_alloc(ep_priv, gni_addr[0], &vc[0]);
+	ret = _gnix_vc_alloc(ep_priv, &gnix_addr[0], &vc[0]);
 	cr_assert_eq(ret, FI_SUCCESS);
 
-	ret = _gnix_vc_alloc(ep_priv, gni_addr[1], &vc[1]);
+	ret = _gnix_vc_alloc(ep_priv, &gnix_addr[1], &vc[1]);
 	cr_assert_eq(ret, FI_SUCCESS);
 
 	/*
@@ -198,10 +212,10 @@ Test(vc_management, vc_lookup_by_id)
 
 	ep_priv = container_of(ep[0], struct gnix_fid_ep, ep_fid);
 
-	ret = _gnix_vc_alloc(ep_priv, gni_addr[0], &vc[0]);
+	ret = _gnix_vc_alloc(ep_priv, &gnix_addr[0], &vc[0]);
 	cr_assert_eq(ret, FI_SUCCESS);
 
-	ret = _gnix_vc_alloc(ep_priv, gni_addr[1], &vc[1]);
+	ret = _gnix_vc_alloc(ep_priv, &gnix_addr[1], &vc[1]);
 	cr_assert_eq(ret, FI_SUCCESS);
 
 	vc_chk = __gnix_nic_elem_by_rem_id(ep_priv->nic, vc[0]->vc_id);
@@ -226,10 +240,10 @@ Test(vc_management, vc_accept)
 
 	ep_priv = container_of(ep[0], struct gnix_fid_ep, ep_fid);
 
-	ret = _gnix_vc_alloc(ep_priv, gni_addr[0], &vc[0]);
+	ret = _gnix_vc_alloc(ep_priv, &gnix_addr[0], &vc[0]);
 	cr_assert_eq(ret, FI_SUCCESS);
 
-	ret = _gnix_vc_alloc(ep_priv, FI_ADDR_UNSPEC, &vc[1]);
+	ret = _gnix_vc_alloc(ep_priv, NULL, &vc[1]);
 	cr_assert_eq(ret, FI_SUCCESS);
 
 	/*
@@ -271,7 +285,7 @@ Test(vc_management, vc_conn_accept)
 	ep_priv[1] = container_of(ep[1], struct gnix_fid_ep, ep_fid);
 	cm_nic[1] = ep_priv[1]->cm_nic;
 
-	ret = _gnix_vc_alloc(ep_priv[0], gni_addr[1], &vc_conn);
+	ret = _gnix_vc_alloc(ep_priv[0], &gnix_addr[1], &vc_conn);
 	cr_assert_eq(ret, FI_SUCCESS);
 
 	memcpy(&key, &gni_addr[1],
@@ -281,7 +295,7 @@ Test(vc_management, vc_conn_accept)
 	cr_assert_eq(ret, FI_SUCCESS);
 	vc_conn->modes |= GNIX_VC_MODE_IN_HT;
 
-	ret = _gnix_vc_alloc(ep_priv[1], FI_ADDR_UNSPEC, &vc_listen);
+	ret = _gnix_vc_alloc(ep_priv[1], NULL, &vc_listen);
 	cr_assert_eq(ret, FI_SUCCESS);
 
 	ret = _gnix_vc_accept(vc_listen);

@@ -534,7 +534,7 @@ static int __gnix_vc_hndl_wc_match_con(struct gnix_datagram *dgram,
 	 * repost a wildcard datagram
 	 */
 
-	ret = _gnix_vc_alloc(ep, FI_ADDR_UNSPEC, &wc_vc);
+	ret = _gnix_vc_alloc(ep, NULL, &wc_vc);
 	if (ret != FI_SUCCESS)
 		goto err1;
 
@@ -818,7 +818,7 @@ static int __gnix_vc_connect_comp_fn(void *data)
  * Internal API functions
  ******************************************************************************/
 
-int _gnix_vc_alloc(struct gnix_fid_ep *ep_priv, fi_addr_t dest_addr,
+int _gnix_vc_alloc(struct gnix_fid_ep *ep_priv, struct gnix_address *dest_addr,
 		   struct gnix_vc **vc)
 
 {
@@ -855,7 +855,12 @@ int _gnix_vc_alloc(struct gnix_fid_ep *ep_priv, fi_addr_t dest_addr,
 		return -FI_ENOMEM;
 
 	vc_ptr->conn_state = GNIX_VC_CONN_NONE;
-	memcpy(&vc_ptr->peer_addr, &dest_addr, sizeof(dest_addr));
+	if (dest_addr) {
+		memcpy(&vc_ptr->peer_addr, dest_addr, sizeof(*dest_addr));
+	} else {
+		vc_ptr->peer_addr.device_addr = -1;
+		vc_ptr->peer_addr.cdm_id = -1;
+	}
 	vc_ptr->ep = ep_priv;
 	_gnix_ref_get(ep_priv);
 	slist_init(&vc_ptr->tx_queue);
@@ -1216,7 +1221,7 @@ int _gnix_vc_dequeue_smsg(struct gnix_vc *vc)
 	struct gnix_nic *nic;
 	gni_return_t status;
 	void *msg_ptr;
-	uint8_t tag = GNI_SMSG_ANY_TAG;
+	uint8_t tag;
 
 	GNIX_TRACE(FI_LOG_EP_DATA, "\n");
 
@@ -1227,6 +1232,7 @@ int _gnix_vc_dequeue_smsg(struct gnix_vc *vc)
 	assert(nic != NULL);
 
 	do {
+		tag = GNI_SMSG_ANY_TAG;
 		status = GNI_SmsgGetNextWTag(vc->gni_ep,
 					     &msg_ptr,
 					     &tag);
@@ -1406,27 +1412,28 @@ static int __gnix_ep_get_vc(struct gnix_fid_ep *ep, fi_addr_t dest_addr,
 	int ret = FI_SUCCESS;
 	struct gnix_vc *vc = NULL;
 	struct gnix_fid_av *av;
-	fi_addr_t real_addr;
+	struct gnix_address gnix_addr;
+	size_t addrlen = sizeof(gnix_addr);
 	gnix_ht_key_t key;
 
 	av = ep->av;
 	assert(av != NULL);
 
-	ret = _gnix_av_addr_retrieve(av, dest_addr, &real_addr);
+	ret = _gnix_av_lookup(av, dest_addr, &gnix_addr, &addrlen);
 	if (ret != FI_SUCCESS) {
 		GNIX_WARN(FI_LOG_EP_DATA,
-				"_gnix_av_addr_retrieve returned %d\n",
-				  ret);
+			  "_gnix_av_lookup returned %d\n",
+			  ret);
 		goto err;
 	}
 
-	memcpy(&key, &real_addr, sizeof(gnix_ht_key_t));
+	memcpy(&key, &gnix_addr, sizeof(gnix_ht_key_t));
 	vc = (struct gnix_vc *)_gnix_ht_lookup(ep->vc_ht,
 						key);
 	if (vc == NULL) {
 		ret = _gnix_vc_alloc(ep,
-				    real_addr,
-				    &vc);
+				     &gnix_addr,
+				     &vc);
 		if (ret != FI_SUCCESS) {
 			GNIX_WARN(FI_LOG_EP_DATA,
 				  "_gnix_vc_alloc returned %d\n",

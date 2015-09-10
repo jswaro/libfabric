@@ -46,20 +46,19 @@
 
 #include <gni_pub.h>
 
-static int __gnix_rma_fab_req_complete(void *arg)
+static int __gnix_rma_txd_complete(void *arg)
 {
-	struct gnix_fab_req *req = (struct gnix_fab_req *)arg;
+	struct gnix_tx_descriptor *txd = (struct gnix_tx_descriptor *)arg;
+	struct gnix_fab_req *req = txd->req;
 	struct gnix_fid_ep *ep = req->gnix_ep;
 	int rc;
 	struct gnix_fid_cntr *cntr = NULL;
 
-	/* more transaction needed for request? */
-
 	if (req->flags & FI_COMPLETION) {
 		rc = _gnix_cq_add_event(ep->send_cq, req->user_context,
-					req->flags, req->len,
-					(void *)req->loc_addr,
-					req->imm, req->msg.tag);
+					req->flags, req->rma.len,
+					(void *)req->rma.loc_addr,
+					req->rma.imm, 0);
 		if (rc) {
 			GNIX_WARN(FI_LOG_CQ,
 				  "_gnix_cq_add_event() failed: %d\n", rc);
@@ -84,6 +83,7 @@ static int __gnix_rma_fab_req_complete(void *arg)
 	}
 
 	atomic_dec(&req->vc->outstanding_tx_reqs);
+	_gnix_nic_tx_free(ep->nic, txd);
 
 	/* We could have requests waiting for TXDs or FI_FENCE operations.
 	 * Schedule this VC to push any such TXs. */
@@ -92,15 +92,6 @@ static int __gnix_rma_fab_req_complete(void *arg)
 	_gnix_fr_free(ep, req);
 
 	return FI_SUCCESS;
-}
-
-static int __gnix_rma_txd_complete(void *arg)
-{
-	struct gnix_tx_descriptor *txd = (struct gnix_tx_descriptor *)arg;
-
-	/* Progress fabric operation in the fab_req completer.  Can we call
-	 * fab_req->completer_fn directly from __gnix_tx_progress? */
-	return txd->req->completer_fn(txd->req->completer_data);
 }
 
 static gni_post_type_t __gnix_fr_post_type(int fr_type, int rdma)
@@ -154,18 +145,18 @@ int _gnix_rma_post_req(void *data)
 				(gnix_mr_key_t *)&fab_req->rma.rem_mr_key,
 				&mdh);
 	}
-	loc_md = (struct gnix_fid_mem_desc *)fab_req->loc_md;
+	loc_md = (struct gnix_fid_mem_desc *)fab_req->rma.loc_md;
 
 	txd->gni_desc.type = __gnix_fr_post_type(fab_req->type, rdma);
 	txd->gni_desc.cq_mode = GNI_CQMODE_GLOBAL_EVENT; /* check flags */
 	txd->gni_desc.dlvr_mode = GNI_DLVMODE_PERFORMANCE; /* check flags */
-	txd->gni_desc.local_addr = (uint64_t)fab_req->loc_addr;
+	txd->gni_desc.local_addr = (uint64_t)fab_req->rma.loc_addr;
 	if (loc_md) {
 		txd->gni_desc.local_mem_hndl = loc_md->mem_hndl;
 	}
 	txd->gni_desc.remote_addr = (uint64_t)fab_req->rma.rem_addr;
 	txd->gni_desc.remote_mem_hndl = mdh;
-	txd->gni_desc.length = fab_req->len;
+	txd->gni_desc.length = fab_req->rma.len;
 	txd->gni_desc.rdma_mode = 0; /* check flags */
 	txd->gni_desc.src_cq_hndl = nic->tx_cq; /* check flags */
 
@@ -251,26 +242,24 @@ ssize_t _gnix_rma(struct gnix_fid_ep *ep, enum gnix_fab_req_type fr_type,
 	req->type = fr_type;
 	req->gnix_ep = ep;
 	req->vc = vc;
-	req->completer_fn = __gnix_rma_fab_req_complete;
-	req->completer_data = req;
 	req->user_context = context;
 	req->send_fn = _gnix_rma_post_req;
 
 	if (mdesc) {
 		md = container_of(mdesc, struct gnix_fid_mem_desc, mr_fid);
 	}
-	req->loc_md = (void *)md;
+	req->rma.loc_md = (void *)md;
 
 	req->rma.rem_addr = rem_addr;
 	req->rma.rem_mr_key = mkey;
-	req->len = len;
+	req->rma.len = len;
 	req->flags = flags;
 
 	if (req->flags & FI_INJECT) {
 		memcpy(req->inject_buf, (void *)loc_addr, len);
-		req->loc_addr = (uint64_t)req->inject_buf;
+		req->rma.loc_addr = (uint64_t)req->inject_buf;
 	} else {
-		req->loc_addr = loc_addr;
+		req->rma.loc_addr = loc_addr;
 	}
 
 	/* Inject interfaces always suppress completions.  If
