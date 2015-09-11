@@ -101,6 +101,8 @@ enum gnix_vc_conn_req_type {
 struct gnix_vc {
 	struct slist tx_queue;
 	fastlock_t tx_queue_lock;
+	struct slist req_queue;
+	fastlock_t req_queue_lock;
 	struct dlist_entry entry;
 	struct gnix_address peer_addr;
 	struct gnix_fid_ep *ep;
@@ -108,6 +110,7 @@ struct gnix_vc {
 	struct gnix_datagram *dgram;
 	gni_ep_handle_t gni_ep;
 	atomic_t outstanding_tx_reqs;
+	atomic_t outstanding_reqs;
 	enum gnix_vc_conn_state conn_state;
 	int vc_id;
 	int modes;
@@ -208,11 +211,12 @@ static inline enum gnix_vc_conn_state _gnix_vc_state(struct gnix_vc *vc)
 
 
 int _gnix_vc_schedule(struct gnix_vc *vc);
-int _gnix_vc_schedule_tx(struct gnix_vc *vc);
+int _gnix_vc_schedule_reqs(struct gnix_vc *vc);
 struct gnix_vc *_gnix_nic_next_pending_vc(struct gnix_nic *nic);
 int _gnix_vc_dequeue_smsg(struct gnix_vc *vc);
 int _gnix_vc_progress(struct gnix_vc *vc);
 int _gnix_vc_queue_tx_req(struct gnix_fab_req *req);
+int _gnix_vc_queue_req(struct gnix_fab_req *req);
 
 /**
  * @brief  return vc associated with a given ep/dest address, or the ep in the

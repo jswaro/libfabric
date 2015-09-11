@@ -57,7 +57,7 @@
 
 #include <criterion/criterion.h>
 
-#if 0
+#if 1
 #define dbg_printf(...)
 #else
 #define dbg_printf(...) fprintf(stderr, __VA_ARGS__); fflush(stderr)
