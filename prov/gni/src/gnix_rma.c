@@ -86,8 +86,8 @@ static int __gnix_rma_txd_complete(void *arg)
 	_gnix_nic_tx_free(ep->nic, txd);
 
 	/* We could have requests waiting for TXDs or FI_FENCE operations.
-	 * Schedule this VC to push any such TXs. */
-	_gnix_vc_schedule_tx(req->vc);
+	 * Schedule this VC to push any such requests. */
+	_gnix_vc_schedule_reqs(req->vc);
 
 	_gnix_fr_free(ep, req);
 

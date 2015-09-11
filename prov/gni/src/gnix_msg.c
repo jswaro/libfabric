@@ -175,8 +175,9 @@ static int __gnix_rndzv_req_complete(void *arg)
 	return gnixu_to_fi_errno(status);
 }
 
-static int __gnix_rndzv_req(struct gnix_fab_req *req)
+static int __gnix_rndzv_req(void *arg)
 {
+	struct gnix_fab_req *req = (struct gnix_fab_req *)arg;
 	struct gnix_fid_ep *ep = req->gnix_ep;
 	struct gnix_nic *nic = ep->nic;
 	struct gnix_tx_descriptor *txd;
@@ -239,8 +240,8 @@ static int __comp_eager_msg_w_data(void *data)
 	_gnix_nic_tx_free(req->gnix_ep->nic, tdesc);
 
 	/* We could have requests waiting for TXDs or FI_FENCE operations.
-	 * Schedule this VC to push any such TXs. */
-	_gnix_vc_schedule_tx(req->vc);
+	 * Schedule this VC to push any such requests. */
+	_gnix_vc_schedule_reqs(req->vc);
 
 	_gnix_fr_free(ep, req);
 
@@ -292,13 +293,14 @@ static int __comp_rndzv_start(void *data)
 {
 	struct gnix_tx_descriptor *txd = (struct gnix_tx_descriptor *)data;
 
+	/* Just free the TX descriptor for now.  The request remains active
+	 * until the remote peer notifies us that they're done with the send
+	 * buffer. */
 	_gnix_nic_tx_free(txd->req->gnix_ep->nic, txd);
 
-	/* Request remains active until remote peer notifies us they're done
-	 * with the send buffer.
-	 *
-	 * TODO: check for unlikely case where RNDZV_FIN was received before
-	 * this RNDZV_START completion. */
+	/* We could have requests waiting for TXDs.  Schedule this VC to push
+	 * any such requests. */
+	_gnix_vc_schedule_reqs(txd->req->vc);
 
 	GNIX_INFO(FI_LOG_EP_DATA, "Completed RNDZV_START, req: %p\n", txd->req);
 
@@ -324,11 +326,12 @@ static int __comp_rndzv_fin(void *data)
 
 	__gnix_recv_completion(ep, req);
 
+	atomic_dec(&req->vc->outstanding_reqs);
 	_gnix_nic_tx_free(ep->nic, tdesc);
 
 	/* We could have requests waiting for TXDs.  Schedule this VC to push
-	 * any such TXs. */
-	_gnix_vc_schedule_tx(req->vc);
+	 * any such requests. */
+	_gnix_vc_schedule_reqs(req->vc);
 
 	_gnix_fr_free(ep, req);
 
@@ -549,14 +552,8 @@ static int __smsg_rndzv_start(void *data, void *msg)
 		req->msg.rma_id = hdr->req_addr;
 
 		/* Initiate pull of source data. */
-		ret = __gnix_rndzv_req(req);
-		if (ret) {
-			/* TODO queue TX */
-			GNIX_INFO(FI_LOG_EP_DATA,
-				  "__gnix_rndzv_req failed: %dn",
-				  ret);
-			return ret;
-		}
+		req->send_fn = __gnix_rndzv_req;
+		ret = _gnix_vc_queue_req(req);
 	} else {
 		/* Add new unexpected receive request. */
 		req = _gnix_fr_alloc(ep);
@@ -618,6 +615,12 @@ static int __smsg_rndzv_fin(void *data, void *msg)
 	assert(ep != NULL);
 
 	__gnix_send_completion(ep, req);
+
+	atomic_dec(&req->vc->outstanding_tx_reqs);
+
+	/* We could have requests waiting for TXDs or FI_FENCE operations.
+	 * Schedule this VC to push any such requests. */
+	_gnix_vc_schedule_reqs(req->vc);
 
 	_gnix_fr_free(ep, req);
 
@@ -741,14 +744,8 @@ ssize_t _gnix_recv(struct gnix_fid_ep *ep, uint64_t buf, size_t len,
 			}
 
 			/* Initiate pull of source data. */
-			ret = __gnix_rndzv_req(req);
-			if (ret) {
-				/* TODO queue TX */
-				GNIX_INFO(FI_LOG_EP_DATA,
-					  "__gnix_rndzv_req failed: %dn",
-					  ret);
-				return ret;
-			}
+			req->send_fn = __gnix_rndzv_req;
+			ret = _gnix_vc_queue_req(req);
 		} else {
 			/* Matched eager request.  Copy data and generate
 			 * completions. */

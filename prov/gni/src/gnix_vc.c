@@ -866,6 +866,9 @@ int _gnix_vc_alloc(struct gnix_fid_ep *ep_priv, struct gnix_address *dest_addr,
 	slist_init(&vc_ptr->tx_queue);
 	fastlock_init(&vc_ptr->tx_queue_lock);
 	atomic_initialize(&vc_ptr->outstanding_tx_reqs, 0);
+	slist_init(&vc_ptr->req_queue);
+	fastlock_init(&vc_ptr->req_queue_lock);
+	atomic_initialize(&vc_ptr->outstanding_reqs, 0);
 	ret = _gnix_alloc_bitmap(&vc_ptr->flags, 1);
 	assert(!ret);
 
@@ -1182,11 +1185,11 @@ int _gnix_vc_schedule(struct gnix_vc *vc)
 	return FI_SUCCESS;
 }
 
-int _gnix_vc_schedule_tx(struct gnix_vc *vc)
+int _gnix_vc_schedule_reqs(struct gnix_vc *vc)
 {
 	int ret __attribute__((unused));
 
-	if (!slist_empty(&vc->tx_queue)) {
+	if (!slist_empty(&vc->tx_queue) || !slist_empty(&vc->req_queue)) {
 		ret = _gnix_vc_schedule(vc);
 		assert(ret == FI_SUCCESS);
 	}
@@ -1280,8 +1283,12 @@ int _gnix_vc_queue_tx_req(struct gnix_fab_req *req)
 			GNIX_INFO(FI_LOG_EP_DATA,
 				  "Queued request (%p) on full VC\n",
 				  req);
+		} else {
+			atomic_inc(&vc->outstanding_tx_reqs);
+			GNIX_INFO(FI_LOG_EP_DATA,
+				  "TX request processed: %p (OTX: %d)\n",
+				  req, atomic_get(&vc->outstanding_tx_reqs));
 		}
-		atomic_inc(&vc->outstanding_tx_reqs);
 	} else {
 		queue_tx = 1;
 		GNIX_INFO(FI_LOG_EP_DATA,
@@ -1330,8 +1337,8 @@ int _gnix_vc_push_tx_reqs(struct gnix_vc *vc)
 		if (ret == FI_SUCCESS) {
 			atomic_inc(&vc->outstanding_tx_reqs);
 			GNIX_INFO(FI_LOG_EP_DATA,
-				  "TX request processed: %p\n",
-				  req);
+				  "TX request processed: %p (OTX: %d)\n",
+				  req, atomic_get(&vc->outstanding_tx_reqs));
 		} else if (ret == -FI_EAGAIN) {
 			GNIX_INFO(FI_LOG_EP_DATA,
 				  "TX request queue stalled: %p\n",
@@ -1351,6 +1358,91 @@ int _gnix_vc_push_tx_reqs(struct gnix_vc *vc)
 	}
 
 	fastlock_release(&vc->tx_queue_lock);
+
+	return fi_rc;
+}
+
+int _gnix_vc_queue_req(struct gnix_fab_req *req)
+{
+	int rc, queue_req = 0;
+	struct gnix_vc *vc = req->vc;
+
+	fastlock_acquire(&vc->req_queue_lock);
+
+	if (vc->conn_state == GNIX_VC_CONNECTED) {
+		/* try to initiate request */
+		rc = req->send_fn(req);
+		if (rc != FI_SUCCESS) {
+			queue_req = 1;
+			GNIX_INFO(FI_LOG_EP_DATA,
+				  "Queued request (%p) on full VC\n",
+				  req);
+		} else {
+			atomic_inc(&vc->outstanding_reqs);
+			GNIX_INFO(FI_LOG_EP_DATA,
+				  "Request processed: %p (OREQs: %d)\n",
+				  req, atomic_get(&vc->outstanding_reqs));
+		}
+	} else {
+		queue_req = 1;
+		GNIX_INFO(FI_LOG_EP_DATA,
+			  "Queued request (%p) on busy VC\n",
+			  req);
+	}
+
+	if (unlikely(queue_req)) {
+		slist_insert_tail(&req->slist, &vc->req_queue);
+		_gnix_vc_schedule(vc);
+	}
+
+	fastlock_release(&vc->req_queue_lock);
+
+	return FI_SUCCESS;
+}
+
+int _gnix_vc_push_reqs(struct gnix_vc *vc)
+{
+	int ret, fi_rc = FI_SUCCESS;
+	struct slist *list;
+	struct slist_entry *item;
+	struct gnix_fab_req *req;
+
+	if (vc->conn_state != GNIX_VC_CONNECTED)
+		return FI_SUCCESS;
+
+	fastlock_acquire(&vc->req_queue_lock);
+
+	list = &vc->req_queue;
+	item = list->head;
+	while (item != NULL) {
+		req = (struct gnix_fab_req *)container_of(item,
+							  struct gnix_fab_req,
+							  slist);
+		ret = req->send_fn(req);
+		if (ret == FI_SUCCESS) {
+			atomic_inc(&vc->outstanding_reqs);
+			GNIX_INFO(FI_LOG_EP_DATA,
+				  "Request processed: %p (OTX: %d)\n",
+				  req, atomic_get(&vc->outstanding_reqs));
+		} else if (ret == -FI_EAGAIN) {
+			GNIX_INFO(FI_LOG_EP_DATA,
+				  "Request queue stalled: %p\n",
+				  req);
+			break;
+		} else {
+			GNIX_WARN(FI_LOG_EP_DATA,
+				  "Failed to push request %p: %d\n",
+				  req, ret);
+			fi_rc = ret;
+			assert(0);
+			break;
+		}
+
+		slist_remove_head(&vc->req_queue);
+		item = list->head;
+	}
+
+	fastlock_release(&vc->req_queue_lock);
 
 	return fi_rc;
 }
@@ -1393,13 +1485,25 @@ int _gnix_vc_progress(struct gnix_vc *vc)
 		}
 	}
 
-	/* Initiate pending TXs */
-	if (!slist_empty(&vc->tx_queue)) {
-		ret = _gnix_vc_push_tx_reqs(vc);
-		if ((ret != FI_SUCCESS)) {
+	/* Initiate non-TX requests */
+	if (!slist_empty(&vc->req_queue)) {
+		ret = _gnix_vc_push_reqs(vc);
+		if (ret != FI_SUCCESS) {
 			GNIX_WARN(FI_LOG_EP_CTRL,
 				  "_gnix_vc_push_tx_reqs() failed: %d\n",
 				  ret);
+			return ret;
+		}
+	}
+
+	/* Initiate pending TXs */
+	if (!slist_empty(&vc->tx_queue)) {
+		ret = _gnix_vc_push_tx_reqs(vc);
+		if (ret != FI_SUCCESS) {
+			GNIX_WARN(FI_LOG_EP_CTRL,
+				  "_gnix_vc_push_tx_reqs() failed: %d\n",
+				  ret);
+			return ret;
 		}
 	}
 
