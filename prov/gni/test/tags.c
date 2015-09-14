@@ -174,8 +174,10 @@ static struct gnix_tag_storage_attr default_auto_attr = {
 static struct gnix_fr_element default_reqs[8] = {
 		{
 			.req = {
-				.tag = 0x00005555,
-				.ignore_bits = 0x11111111
+				.msg = {
+					.tag = 0x00005555,
+					.ignore = 0x11111111
+				},
 			},
 			.peek_flags = FI_PEEK,
 			.remove_flags = 0,
@@ -184,8 +186,10 @@ static struct gnix_fr_element default_reqs[8] = {
 		},
 		{
 			.req = {
-				.tag = 0x0000AAAA,
-				.ignore_bits = 0x11111111
+				.msg = {
+						.tag = 0x0000AAAA,
+						.ignore = 0x11111111
+				},
 			},
 			.peek_flags = FI_PEEK,
 			.remove_flags = 0,
@@ -193,8 +197,10 @@ static struct gnix_fr_element default_reqs[8] = {
 		},
 		{
 			.req = {
-				.tag = 0xAAAA5555,
-				.ignore_bits = 0x11111111
+				.msg = {
+					.tag = 0xAAAA5555,
+					.ignore = 0x11111111
+				},
 			},
 			.peek_flags = FI_PEEK,
 			.remove_flags = 0,
@@ -202,8 +208,10 @@ static struct gnix_fr_element default_reqs[8] = {
 		},
 		{
 			.req = {
-				.tag = 0x5555AAAA,
-				.ignore_bits = 0x11111111
+				.msg = {
+					.tag = 0x5555AAAA,
+					.ignore = 0x11111111
+				},
 			},
 			.peek_flags = FI_PEEK,
 			.remove_flags = 0,
@@ -211,8 +219,10 @@ static struct gnix_fr_element default_reqs[8] = {
 		},
 		{
 			.req = {
-				.tag = 0xAAAA5555,
-				.ignore_bits = 0x11111111
+				.msg = {
+					.tag = 0xAAAA5555,
+					.ignore = 0x11111111
+				},
 			},
 			.peek_flags = FI_PEEK,
 			.remove_flags = 0,
@@ -220,8 +230,10 @@ static struct gnix_fr_element default_reqs[8] = {
 		},
 		{
 			.req = {
-				.tag = 0x00005555,
-				.ignore_bits = 0x11111111
+				.msg = {
+					.tag = 0x00005555,
+					.ignore = 0x11111111
+				},
 			},
 			.peek_flags = FI_PEEK,
 			.remove_flags = 0,
@@ -229,8 +241,10 @@ static struct gnix_fr_element default_reqs[8] = {
 		},
 		{
 			.req = {
-				.tag = 0x00005555,
-				.ignore_bits = 0x11111111
+				.msg = {
+					.tag = 0x00005555,
+					.ignore = 0x11111111
+				},
 			},
 			.peek_flags = FI_PEEK,
 			.remove_flags = 0,
@@ -238,8 +252,10 @@ static struct gnix_fr_element default_reqs[8] = {
 		},
 		{
 			.req = {
-				.tag = 0x0000AAAA,
-				.ignore_bits = 0x11111111
+				.msg = {
+					.tag = 0x0000AAAA,
+					.ignore = 0x11111111
+				},
 			},
 			.peek_flags = FI_PEEK,
 			.remove_flags = 0,
@@ -262,7 +278,7 @@ static inline void reset_test_fr_metadata(struct gnix_fr_element *reqs,
 
 	for (i = 0; i < requests; i++) {
 		reqs[i].claimed = 0;
-		reqs[i].req.tle.context = NULL;
+		reqs[i].req.msg.tle.context = NULL;
 	}
 }
 static inline void reset_test_tag_storage(
@@ -449,14 +465,14 @@ static struct gnix_fr_element *make_evenly_distributed_tags(
 		offset -= mask->field_width[i];
 		for (j = 0; j < requests; j++) {
 			tmp = (j % field_width) << offset;
-			reqs[j].req.tag |= tmp;
+			reqs[j].req.msg.tag |= tmp;
 		}
 	}
 
 	for (i = 0; i < requests; i++) {
-		tmp = make_test_tag(mask, reqs[i].req.tag);
-		reqs[i].req.ignore_bits = 0;
-		reqs[i].req.tag = tmp;
+		tmp = make_test_tag(mask, reqs[i].req.msg.tag);
+		reqs[i].req.msg.ignore = 0;
+		reqs[i].req.msg.tag = tmp;
 		reqs[i].peek_flags = FI_PEEK;
 	}
 
@@ -478,8 +494,8 @@ static struct gnix_fr_element *make_random_tags(
 		tag = rand();
 		tag <<= 32;
 		tag += rand();
-		reqs[i].req.tag = make_test_tag(mask, tag);
-		reqs[i].req.ignore_bits = 0;
+		reqs[i].req.msg.tag = make_test_tag(mask, tag);
+		reqs[i].req.msg.ignore = 0;
 		reqs[i].peek_flags = FI_PEEK;
 	}
 
@@ -511,9 +527,9 @@ static void print_request_lists(
 	fprintf(stderr, "insertion order:\n");
 	for (i = 0; i < requests; i++) {
 		current = &reqs[i];
-		fprintf(stderr, "  req=%p req.tag=0x%.16llx index=%i\n",
+		fprintf(stderr, "  req=%p req.msg.tag=0x%.16llx index=%i\n",
 				&current->req,
-				(unsigned long long int) current->req.tag,
+				(unsigned long long int) current->req.msg.tag,
 				i);
 	}
 
@@ -521,9 +537,9 @@ static void print_request_lists(
 	for (i = 0; i < requests; i++) {
 		current = &reqs[removal_order[i]];
 		fprintf(stderr,
-				"  req=%p req.tag=0x%.16llx ignore=0x%.16llx index=%i\n",
+				"  req=%p req.msg.tag=0x%.16llx ignore=0x%.16llx index=%i\n",
 				&current->req,
-				(unsigned long long int) current->req.tag,
+				(unsigned long long int) current->req.msg.tag,
 				(unsigned long long int) current->ignore,
 				removal_order[i]);
 	}
@@ -531,9 +547,9 @@ static void print_request_lists(
 	fprintf(stderr, "correct order:\n");
 	for (i = 0; i < requests; i++) {
 		current = &reqs[correct_order[i]];
-		fprintf(stderr, "  req=%p req.tag=0x%.16llx index=%i\n",
+		fprintf(stderr, "  req=%p req.msg.tag=0x%.16llx index=%i\n",
 				&current->req,
-				(unsigned long long int) current->req.tag,
+				(unsigned long long int) current->req.msg.tag,
 				correct_order[i]);
 	}
 }
@@ -575,7 +591,7 @@ static void multiple_insert_peek_remove_by_order(
 			 * provided ignore bits
 			 */
 			if (is_posted)
-				ignore_bits = current->req.ignore_bits;
+				ignore_bits = current->req.msg.ignore;
 			else
 				ignore_bits = to_remove->ignore;
 
@@ -584,11 +600,11 @@ static void multiple_insert_peek_remove_by_order(
 			 */
 			if ((to_remove->peek_flags & FI_PEEK) &&
 					(to_remove->peek_flags & FI_CLAIM)) {
-				to_remove->req.tle.context = to_remove->context;
+				to_remove->req.msg.tle.context = to_remove->context;
 			}
 
 			if (_gnix_req_matches_params(&to_remove->req,
-					current->req.tag,
+					current->req.msg.tag,
 					ignore_bits,
 					to_remove->remove_flags,
 					to_remove->context,
@@ -596,7 +612,7 @@ static void multiple_insert_peek_remove_by_order(
 					&to_remove->req.addr, is_posted))
 				break;
 
-			to_remove->req.tle.context = NULL;
+			to_remove->req.msg.tle.context = NULL;
 		}
 
 		cr_assert(j != requests,
@@ -609,14 +625,14 @@ static void multiple_insert_peek_remove_by_order(
 	 * during creation of correct list
 	 */
 	for (i = 0; i < requests; i++)
-		reqs[i].req.tle.context = NULL;
+		reqs[i].req.msg.tle.context = NULL;
 
 	/* clear claimed flags */
 	for (i = 0; i < requests; i++)
 		reqs[i].claimed = 0;
 
 	for (i = 0; i < requests; i++) {
-		ret = _gnix_insert_tag(ts, reqs[i].req.tag, &reqs[i].req,
+		ret = _gnix_insert_tag(ts, reqs[i].req.msg.tag, &reqs[i].req,
 				reqs[i].ignore);
 		if (ret) {
 			print_request_lists(reqs, requests, correct_order,
@@ -631,7 +647,7 @@ static void multiple_insert_peek_remove_by_order(
 		correct = &reqs[correct_order[i]].req;
 
 		found = _gnix_match_tag(ts,
-				to_remove->req.tag, to_remove->ignore,
+				to_remove->req.msg.tag, to_remove->ignore,
 				to_remove->peek_flags | FI_PEEK, to_remove->context,
 				NULL);
 		if (found != correct) {
@@ -649,7 +665,7 @@ static void multiple_insert_peek_remove_by_order(
 
 
 		found = _gnix_match_tag(ts,
-				to_remove->req.tag, to_remove->ignore,
+				to_remove->req.msg.tag, to_remove->ignore,
 				to_remove->remove_flags, to_remove->context,
 				NULL);
 		if (found != correct) {
@@ -927,7 +943,7 @@ static inline void __test_not_found_non_empty(void)
 
 	for (i = 0; i < requests; i++) {
 		ret = _gnix_insert_tag(test_tag_storage,
-				reqs[i].req.tag, &reqs[i].req, reqs[i].ignore);
+				reqs[i].req.msg.tag, &reqs[i].req, reqs[i].ignore);
 		cr_assert(ret == FI_SUCCESS,
 				"failed to insert tag into storage");
 	}
@@ -943,14 +959,14 @@ static inline void __test_not_found_non_empty(void)
 		correct = &reqs[i].req;
 
 		found = _gnix_match_tag(
-				test_tag_storage, to_remove->req.tag,
+				test_tag_storage, to_remove->req.msg.tag,
 				to_remove->ignore, to_remove->peek_flags,
 				to_remove->context, NULL);
 		cr_assert(found == correct,
 				"failed to find tag in storage");
 
 		found = _gnix_match_tag(test_tag_storage,
-				to_remove->req.tag, to_remove->ignore,
+				to_remove->req.msg.tag, to_remove->ignore,
 				to_remove->remove_flags, to_remove->context,
 				NULL);
 		cr_assert(found == correct,
@@ -981,7 +997,7 @@ static inline void __test_ignore_mask_set(
 	reqs[0].ignore = 0xffffffff;
 
 	for (i = 0; i < requests; i++)
-		reqs[i].req.ignore_bits = reqs[i].ignore;
+		reqs[i].req.msg.ignore = reqs[i].ignore;
 
 	multiple_insert_peek_remove_by_order(test_tag_storage,
 			&test_masks[TEST_OVERLAY_DEF], requests, reqs,
@@ -994,8 +1010,10 @@ static inline void __test_claim_pass(
 	int ret;
 	struct gnix_fr_element request = {
 		.req = {
-			.tag = 0xA5A5A5A5,
-			.ignore_bits = 0xFFFFFFFF
+			.msg = {
+				.tag = 0xA5A5A5A5,
+				.ignore = 0xFFFFFFFF
+			},
 		},
 		.peek_flags = FI_PEEK | FI_CLAIM,
 		.remove_flags = FI_CLAIM,
@@ -1004,17 +1022,17 @@ static inline void __test_claim_pass(
 	struct gnix_fab_req *found;
 
 	ret = _gnix_insert_tag(
-			test_tag_storage, request.req.tag,
+			test_tag_storage, request.req.msg.tag,
 			&request.req, request.ignore);
 	cr_assert(ret == FI_SUCCESS, "failed to insert tag into storage");
 
 	found = _gnix_match_tag(
-			test_tag_storage, request.req.tag, request.ignore,
+			test_tag_storage, request.req.msg.tag, request.ignore,
 			request.peek_flags, request.context, NULL);
 	cr_assert(found == &request.req, "failed to find tag in storage");
 
 	found = _gnix_match_tag(
-			test_tag_storage, request.req.tag, request.ignore,
+			test_tag_storage, request.req.msg.tag, request.ignore,
 			request.remove_flags, request.context, NULL);
 	cr_assert(found == &request.req, "failed to remove tag from storage");
 }
@@ -1027,8 +1045,10 @@ static inline void __test_fail_no_claimed_tags(
 	struct gnix_fab_req *found;
 	struct gnix_fr_element request = {
 		.req = {
-			.tag = 0xA5A5A5A5,
-			.ignore_bits = 0xFFFFFFFF
+			.msg = {
+				.tag = 0xA5A5A5A5,
+				.ignore = 0xFFFFFFFF
+			},
 		},
 		.peek_flags = FI_PEEK,
 		.remove_flags = FI_CLAIM,
@@ -1036,23 +1056,23 @@ static inline void __test_fail_no_claimed_tags(
 	};
 
 	ret = _gnix_insert_tag(
-			test_tag_storage, request.req.tag,
+			test_tag_storage, request.req.msg.tag,
 			&request.req, request.ignore);
 	cr_assert(ret == FI_SUCCESS, "failed to insert tag into storage");
 
 	found = _gnix_match_tag(
-			test_tag_storage, request.req.tag, request.ignore,
+			test_tag_storage, request.req.msg.tag, request.ignore,
 			request.peek_flags, request.context, NULL);
 	cr_assert(found == &request.req, "failed to find tag in storage");
 
 	found = _gnix_match_tag(
-			test_tag_storage, request.req.tag, request.ignore,
+			test_tag_storage, request.req.msg.tag, request.ignore,
 			request.remove_flags, request.context, NULL);
 	cr_assert(found == NULL, "found an unexpected tag in remove");
 
 	/* use the peek tags this time to remove the entry */
 	found = _gnix_match_tag(
-			test_tag_storage, request.req.tag, request.ignore,
+			test_tag_storage, request.req.msg.tag, request.ignore,
 			0, request.context, NULL);
 	cr_assert(found == &request.req, "failed to find tag in storage");
 }
@@ -1064,8 +1084,10 @@ static inline void __test_fail_all_claimed_tags(
 	int ret;
 	struct gnix_fr_element request = {
 		.req = {
-			.tag = 0xA5A5A5A5,
-			.ignore_bits = 0xFFFFFFFF
+			.msg = {
+				.tag = 0xA5A5A5A5,
+				.ignore = 0xFFFFFFFF
+			},
 		},
 		.peek_flags = FI_PEEK | FI_CLAIM,
 		.remove_flags = 0,
@@ -1074,23 +1096,23 @@ static inline void __test_fail_all_claimed_tags(
 	struct gnix_fab_req *found;
 
 	ret = _gnix_insert_tag(
-			test_tag_storage, request.req.tag,
+			test_tag_storage, request.req.msg.tag,
 			&request.req, request.ignore);
 	cr_assert(ret == FI_SUCCESS, "failed to insert tag into storage");
 
 	found = _gnix_match_tag(
-			test_tag_storage, request.req.tag, request.ignore,
+			test_tag_storage, request.req.msg.tag, request.ignore,
 			request.peek_flags, request.context, NULL);
 	cr_assert(found == &request.req, "failed to find tag in storage");
 
 	found = _gnix_match_tag(
-			test_tag_storage, request.req.tag, request.ignore,
+			test_tag_storage, request.req.msg.tag, request.ignore,
 			request.remove_flags, request.context, NULL);
 	cr_assert(found == NULL, "found an unexpected tag during remove");
 
 	/* use the peek tags this time to remove the entry */
 	found = _gnix_match_tag(
-			test_tag_storage, request.req.tag, request.ignore,
+			test_tag_storage, request.req.msg.tag, request.ignore,
 			FI_CLAIM, request.context, NULL);
 	cr_assert(found == &request.req, "failed to find tag in storage");
 }
@@ -1101,8 +1123,10 @@ static inline void __test_fail_peek_all_claimed(
 	int ret;
 	struct gnix_fr_element request = {
 		.req = {
-			.tag = 0xA5A5A5A5,
-			.ignore_bits = 0xFFFFFFFF
+			.msg = {
+				.tag = 0xA5A5A5A5,
+				.ignore = 0xFFFFFFFF
+			},
 		},
 		.peek_flags = FI_PEEK,
 		.remove_flags = FI_CLAIM,
@@ -1111,22 +1135,22 @@ static inline void __test_fail_peek_all_claimed(
 	struct gnix_fab_req *found;
 
 	ret = _gnix_insert_tag(
-			test_tag_storage, request.req.tag,
+			test_tag_storage, request.req.msg.tag,
 			&request.req, request.ignore);
 	cr_assert(ret == FI_SUCCESS, "failed to insert tag into storage");
 
 	found = _gnix_match_tag(
-			test_tag_storage, request.req.tag, request.ignore,
+			test_tag_storage, request.req.msg.tag, request.ignore,
 				request.peek_flags | FI_CLAIM, request.context, NULL);
 	cr_assert(found == &request.req, "fail to claim tag");
 
 	found = _gnix_match_tag(
-			test_tag_storage, request.req.tag, request.ignore,
+			test_tag_storage, request.req.msg.tag, request.ignore,
 			request.peek_flags, request.context, NULL);
 	cr_assert(found == NULL, "unexpectedly found a tag");
 
 	found = _gnix_match_tag(
-			test_tag_storage, request.req.tag, request.ignore,
+			test_tag_storage, request.req.msg.tag, request.ignore,
 			request.remove_flags, request.context, NULL);
 	cr_assert(found == &request.req, "failed to remove tag from storage");
 }
@@ -1137,7 +1161,9 @@ static inline void __test_src_addr_match(
 	int ret;
 	struct gnix_fr_element request = {
 		.req = {
-			.tag = 0xA5A5A5A5,
+			.msg = {
+					.tag = 0xA5A5A5A5,
+			},
 			.addr = {
 				.cdm_id = 1,
 				.device_addr = 1,
@@ -1148,18 +1174,18 @@ static inline void __test_src_addr_match(
 	struct gnix_fab_req *found;
 
 	ret = _gnix_insert_tag(
-			test_tag_storage, request.req.tag,
+			test_tag_storage, request.req.msg.tag,
 			&request.req, request.ignore);
 	cr_assert(ret == FI_SUCCESS, "failed to insert tag into storage");
 
 	found = _gnix_match_tag(
-			test_tag_storage, request.req.tag,
+			test_tag_storage, request.req.msg.tag,
 			request.ignore, request.peek_flags,
 			request.context, &request.req.addr);
 	cr_assert(found == &request.req, "failed to find tag in storage");
 
 	found = _gnix_match_tag(
-			test_tag_storage, request.req.tag,
+			test_tag_storage, request.req.msg.tag,
 			request.ignore, request.remove_flags,
 			request.context, &request.req.addr);
 	cr_assert(found == &request.req, "failed to remove tag from storage");
@@ -1173,7 +1199,9 @@ static inline void __test_src_addr_fail_wrong_src_addr(
 	struct gnix_fab_req *found;
 	struct gnix_fr_element request = {
 		.req = {
-			.tag = 0xA5A5A5A5,
+			.msg = {
+					.tag = 0xA5A5A5A5,
+			},
 			.addr = {
 				.cdm_id = 1,
 				.device_addr = 1,
@@ -1192,24 +1220,24 @@ static inline void __test_src_addr_fail_wrong_src_addr(
 	test_tag_storage->attr.use_src_addr_matching = 1;
 
 	ret = _gnix_insert_tag(
-			test_tag_storage, request.req.tag,
+			test_tag_storage, request.req.msg.tag,
 			&request.req, request.ignore);
 	cr_assert(ret == FI_SUCCESS, "failed to insert tag into storage");
 
 	found = _gnix_match_tag(
-			test_tag_storage, request.req.tag,
+			test_tag_storage, request.req.msg.tag,
 			request.ignore, request.peek_flags,
 			request.context, &addr_to_find);
 	cr_assert(found == NULL, "found unexpected tag");
 
 	found = _gnix_match_tag(
-			test_tag_storage, request.req.tag,
+			test_tag_storage, request.req.msg.tag,
 				request.ignore, request.peek_flags,
 				request.context, &request.req.addr);
 	cr_assert(found == &request.req, "failed to find tag in storage");
 
 	found = _gnix_match_tag(
-			test_tag_storage, request.req.tag,
+			test_tag_storage, request.req.msg.tag,
 			request.ignore, request.remove_flags,
 			request.context, &request.req.addr);
 	cr_assert(found == &request.req, "failed to find tag in storage");
@@ -1222,7 +1250,9 @@ static inline void __test_src_addr_match_unspec(
 	int ret;
 	struct gnix_fr_element request = {
 		.req = {
-			.tag = 0xA5A5A5A5,
+			.msg = {
+					.tag = 0xA5A5A5A5,
+			},
 			.addr = {
 				.cdm_id = 1,
 				.device_addr = 1,
@@ -1257,20 +1287,20 @@ static inline void __test_src_addr_match_unspec(
 	test_tag_storage->attr.use_src_addr_matching = 1;
 
 	ret = _gnix_insert_tag(
-			test_tag_storage, request.req.tag,
+			test_tag_storage, request.req.msg.tag,
 			&request.req, request.ignore);
 	cr_assert(ret == FI_SUCCESS, "failed to insert tag into storage");
 
 
 
 	found = _gnix_match_tag(
-			test_tag_storage, request.req.tag,
+			test_tag_storage, request.req.msg.tag,
 			request.ignore, request.peek_flags,
 			request.context, &to_find);
 	cr_assert(found == &request.req, "failed to find tag in storage");
 
 	found = _gnix_match_tag(
-			test_tag_storage, request.req.tag,
+			test_tag_storage, request.req.msg.tag,
 			request.ignore, request.remove_flags,
 			request.context, &to_find);
 	cr_assert(found == &request.req, "failed to find tag in storage");
@@ -1397,8 +1427,10 @@ Test(gnix_tags_basic_posted_list, single_insert_remove)
 	int i;
 	struct gnix_fr_element request = {
 		.req = {
-			.tag = 0xA5A5A5A5,
-			.ignore_bits = 0xFFFFFFFF
+			.msg = {
+				.tag = 0xA5A5A5A5,
+				.ignore = 0xFFFFFFFF
+			},
 		},
 		.peek_flags = FI_PEEK,
 	};
@@ -1532,8 +1564,10 @@ Test(gnix_tags_basic_unexpected_list, single_insert_remove)
 	int i;
 	struct gnix_fr_element request = {
 		.req = {
-			.tag = 0xA5A5A5A5,
-			.ignore_bits = 0xFFFFFFFF
+			.msg = {
+				.tag = 0xA5A5A5A5,
+				.ignore = 0xFFFFFFFF
+			},
 		},
 		.peek_flags = FI_PEEK,
 	};
