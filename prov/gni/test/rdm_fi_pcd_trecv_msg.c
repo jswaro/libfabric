@@ -333,83 +333,173 @@ Test(rdm_fi_pdc, trecvmsg)
 	rdm_fi_pdc_xfer_for_each_size(do_trecvmsg_basic, 1, BUF_SZ);
 }
 
-static void do_trecvmsg_peek(int len)
+Test(rdm_fi_pdc, peek_no_event)
 {
-	int ret;
-	ssize_t sz;
-	int source_done = 0, dest_done = 0;
-	struct fi_cq_entry d_cqe;
-	struct fi_msg_tagged msg;
-	struct iovec iov;
+	/*
+	 * This test should do nothing but peek into EP to ensure that no messages
+	 * are there. This should be a simple test
+	 */
 
-	rdm_fi_pdc_init_data(source, len, 0xab);
-	rdm_fi_pdc_init_data(target, len, 0);
-
-	sz = fi_tsend(ep[0], source, len, loc_mr, gni_addr[1], len, target);
-	cr_assert_eq(sz, 0);
-
-	iov.iov_base = target;
-	iov.iov_len = len;
-
-	msg.msg_iov = &iov;
-	msg.desc = (void **)&rem_mr;
-	msg.iov_count = 1;
-	msg.addr = gni_addr[0];
-	msg.context = source;
-	msg.data = (uint64_t)source;
-	msg.tag = len;
-	msg.ignore = 0;
-
-	__progress_cqs(msg_cq);
-
-	sz = fi_trecvmsg(ep[1], &msg, FI_PEEK);
-	cr_assert_eq(sz, 0);
-
-	ret = fi_cq_read(msg_cq[1], &d_cqe, 1);
-	cr_assert_eq(ret, FI_SUCCESS);
-
-	dbg_printf("got context events!\n");
-
-	cr_assert(rdm_fi_pdc_check_data(source, target, len), "Data mismatch");
 }
 
-static void do_trecvmsg_peek(int len)
+Test(rdm_fi_pdc, peek_event_present_buff_provided)
 {
-	int ret;
-	ssize_t sz;
-	int source_done = 0, dest_done = 0;
-	struct fi_msg_tagged msg;
-	struct iovec iov;
+	/* for each message size (regardless of smsg or rendezvous),
+	 *   send a message, wait for the send completion, then perform a peek.
+	 *   If a message is present, then the test has succeeded. Otherwise, it
+	 *   has failed because the message has been sent by the other endpoint.
+	 *   A CQ event must be generated after the peek has been completed, so
+	 *   we will check for the CQ event before posting the request after the
+	 *   peek. After the CQ comes back, we should check the values of CQ for
+	 *   the peek and for the post.
+	 *
+	 *   This is the special case where the application provides a buffer
+	 *   during the peek for which some of the data can be written.
+	 *
+	 *   	An  application  may supply a buffer as part of the peek operation.
+     * 	   	If given, the provider may return a copy of the message data.
+	 *
+	 *	 Ideally, both cases should be tested, where the provider returns a
+	 *	 NULL pointer indicating that no data was available yet even though
+	 *	 the peek succeeded, and the case where some of the data is copied
+	 *	 back. The former may be applicable to rendezvous and the latter
+	 *	 applicable to smsg.
+	 *
+	 * The returned completion data will indicate
+     * the meta-data associated with the  message,  such  as  the  message
+     * length,  completion  flags,  available  CQ  data,  tag,  and source
+     * address.  The data available is subject  to  the  completion  entry
+     * format (e.g.  struct fi_cq_tagged_entry).
+	 */
+}
 
-	rdm_fi_pdc_init_data(source, len, 0xab);
-	rdm_fi_pdc_init_data(target, len, 0);
+Test(rdm_fi_pdc, peek_event_present_no_buff_provided)
+{
+	/* for each message size (regardless of smsg or rendezvous),
+	 *   send a message, wait for the send completion, then perform a peek.
+	 *   If a message is present, then the test has succeeded. Otherwise, it
+	 *   has failed because the message has been sent by the other endpoint.
+	 *   A CQ event must be generated after the peek has been completed, so
+	 *   we will check for the CQ event before posting the request after the
+	 *   peek. After the CQ comes back, we should check the values of CQ for
+	 *   the peek and for the post.
+	 *
+	 * The returned completion data will indicate
+       the meta-data associated with the  message,  such  as  the  message
+       length,  completion  flags,  available  CQ  data,  tag,  and source
+       address.  The data available is subject  to  the  completion  entry
+       format (e.g.  struct fi_cq_tagged_entry).
+	 */
+}
 
-	sz = fi_tsend(ep[0], source, len, loc_mr, gni_addr[1], len, target);
-	cr_assert_eq(sz, 0);
+Test(rdm_fi_pdc, peek_claim_same_tag)
+{
+	/* for each message size (regardless of smsg or rendezvous),
+	 *   send two messages, each with the same tag. Call trecvmsg with distinct
+	 *   parameters and FI_PEEK/FI_CLAIM flags on both messages. Correctness
+	 *   will be determined by whether the CQE data matches the corresponding
+	 *   parameters of the original trecvmsg calls. Additionally, the data
+	 *   within the posted buffer should match the expected values of the
+	 *   contents. To achieve this, the source buffer should have two sets of
+	 *   values from which the sends are performed. Since the sends will
+	 *   complete in order, the order in which the data is landed should
+	 *   depend on the order in which trecvmsg is called.
+	 */
+}
 
-	iov.iov_base = target;
-	iov.iov_len = len;
+Test(rdm_fi_pdc, peek_claim_unique_tag)
+{
+	/* for each message size (regardless of smsg or rendezvous),
+	 *   send two messages, each with a unique tag. Call trecvmsg with distinct
+	 *   parameters and FI_PEEK/FI_CLAIM flags on both messages. Correctness
+	 *   will be determined by whether the CQE data matches the corresponding
+	 *   parameters of the original trecvmsg calls. Additionally, the data
+	 *   within the posted buffer should match the expected values of the
+	 *   contents. To achieve this, the source buffer should have two sets of
+	 *   values from which the sends are performed. Since the sends will
+	 *   complete in order, the order in which the data is landed should
+	 *   depend on the order in which trecvmsg is called.
+	 */
+}
 
-	msg.msg_iov = &iov;
-	msg.desc = (void **)&rem_mr;
-	msg.iov_count = 1;
-	msg.addr = gni_addr[0];
-	msg.context = source;
-	msg.data = (uint64_t)source;
-	msg.tag = len;
-	msg.ignore = 0;
+Test(rdm_fi_pdc, peek_discard)
+{
+	/* for each message size (regardless of smsg or rendezvous),
+	 *   send one message. Wait for the send completion to arrive then perform
+	 *   a peek/discard on the recv EP. If the peek/discard finds a message
+	 *   and appropriately discards it, then the operation is a success.
+	 *   Success can be measured by calling peek again on the EP and finding
+	 *   no message.
+	 */
+}
 
-	/* assume the recv cq is done, we only want the send cq to get the event */
-	__progress_cqs(msg_cq, 0, 1);
+Test(rdm_fi_pdc, peek_discard_unique_tags)
+{
+	/* for each message size (regardless of smsg or rendezvous),
+	 *   send two messages with unique tags. Wait for the send completion to
+	 *   arrive then perform a peek/discard on the recv EP. If the
+	 *   peek/discard finds a correctly tagged message and appropriately
+	 *   discards it, then the operation is a success. Success can be
+	 *   measured through the following steps:
+	 *     - Since the messages are delivered in order, we can attempt to
+	 *         discard the second message.
+	 *     - Peek on the first operation's tag and find a message
+	 *     - Peek on the second operation's tag and find no message
+	 *     - Recv the first operation and verify the correct contents
+	 */
+}
 
-	sz = fi_trecvmsg(ep[1], &msg, 0);
-	cr_assert_eq(sz, 0);
+Test(rdm_fi_pdc, peek_claim_then_claim)
+{
+	/* for each message size (regardless of smsg or rendezvous),
+	 *   send two messages with unique tags and parameters.
+	 *   Wait for the send completion to arrive then perform a peek/claim
+	 *   on the recv EP. Perform another trecvmsg without peek/claim to recv
+	 *   the other message. Afterwards, perform the trecvmsg with FI_CLAIM
+	 *   to retrieve the first message.
+	 *
+	 *   From the fi_tagged man page:
+	 *   	Claimed messages can only be retrieved using a subsequent,
+     *      paired receive operation with the FI_CLAIM  flag  set.
+	 *
+	 *   Success can be measured through the following steps:
+	 *     - Verification of the correct CQE data
+	 *     - Verification of correct buffer contents. Again, each send should
+	 *       originate from a buffer with a different value set across the
+	 *       buffer
+	 *     - A claim on the second message should fail as nothing should have
+	 *       claimed it
+	 *     - a recv without claim on the first message should fail as the claim
+	 *       flag was not provided
+	 */
+}
 
-
-
-	__progress_cqs(msg_cq);
-
-	dbg_printf("got context events!\n");
-
-	cr_assert(rdm_fi_pdc_check_data(source, target, len), "Data mismatch");
+Test(rdm_fi_pdc, peek_claim_then_claim_discard)
+{
+	/* for each message size (regardless of smsg or rendezvous),
+	 *   send two messages with unique tags and parameters.
+	 *   Wait for the send completion to arrive then perform a peek/claim
+	 *   on the recv EP. Perform another trecvmsg without peek/claim to recv
+	 *   the other message. Afterwards, perform the trecvmsg with CLAIM/DISCARD
+	 *   to discard the first message.
+	 *
+	 *   From the fi_tagged man page:
+	 *   	Claimed messages can only be retrieved using a subsequent,
+     *      paired receive operation with the FI_CLAIM  flag  set.
+     *
+     *      (FI_DISCARD) flag may also be used in conjunction with FI_CLAIM in
+     *      order to retrieve and discard a message previously claimed using an
+     *      FI_PEEK + FI_CLAIM request.
+	 *
+	 *   Success can be measured through the following steps:
+	 *     - Verification of the correct CQE data
+	 *     - Verification of correct buffer contents. Again, each send should
+	 *       originate from a buffer with a different value set across the
+	 *       buffer
+	 *     - A claim on the second message should fail as nothing should have
+	 *       claimed it
+	 *     - a recv without claim on the first message should fail as the claim
+	 *       flag was not provided
+	 *     - a peek on the first message should fail after discard
+	 */
 }
