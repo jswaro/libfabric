@@ -157,6 +157,8 @@ extern "C" {
 				 FI_MORE | FI_INJECT | FI_INJECT_COMPLETE | \
 				 FI_TRANSMIT_COMPLETE | FI_FENCE)
 #define GNIX_RECVMSG_FLAGS	(FI_COMPLETION | FI_MORE | FI_MULTI_RECV)
+#define GNIX_TRECVMSG_FLAGS \
+	(GNIX_RECVMSG_FLAGS | FI_CLAIM | FI_PEEK | FI_DISCARD)
 
 /*
  * Valid rma transaction input flags.  See fi_rma.3.

@@ -58,6 +58,7 @@ prov_gni_test_gnitest_SOURCES = \
 	prov/gni/test/nic.c \
 	prov/gni/test/pmi_utils.c \
 	prov/gni/test/queue.c \
+	prov/gni/test/rdm_fi_pcd_trecv_msg.c \
 	prov/gni/test/rdm_rma.c \
 	prov/gni/test/rdm_sr.c \
 	prov/gni/test/rdm_tagged_sr.c \

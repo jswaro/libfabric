@@ -673,11 +673,6 @@ ssize_t _gnix_recv(struct gnix_fid_ep *ep, uint64_t buf, size_t len,
 
 	r_flags = flags & (FI_CLAIM | FI_DISCARD | FI_PEEK);
 
-	/* CLAIM/DISCARD/PEEK not yet supported. */
-	if (tagged && r_flags) {
-		return -FI_EOPNOTSUPP;
-	}
-
 	/* Translate source address. */
 	if (ep->type == FI_EP_RDM) {
 		/* TODO ignore src_addr unless FI_DIRECT_RECV */
@@ -710,6 +705,30 @@ ssize_t _gnix_recv(struct gnix_fid_ep *ep, uint64_t buf, size_t len,
 	req = _gnix_match_tag(unexp_queue, r_tag, r_ignore,
 			      r_flags, context, addr_ptr);
 	if (req) {
+		/* check to see if we are peeking */
+		if (r_flags & FI_PEEK) {
+			/* don't alter the request. We are just peeking.
+			 * if this isn't a rendezvous, we can copy some data
+			 */
+
+			/* check to see if we are discarding a message */
+			if (r_flags & FI_DISCARD)
+				_gnix_fr_free(ep, req);
+			else if (!(req->msg.send_flags & GNIX_MSG_RENDEZVOUS))
+				memcpy((void *) buf, (void *) req->msg.recv_addr,
+						MIN(req->msg.send_len, len));
+
+			/* just exit */
+			ret = FI_SUCCESS;
+			goto err;
+		} else if (r_flags & FI_DISCARD) {
+			/* we are discarding a message */
+			_gnix_fr_free(ep, req);
+
+			ret = FI_SUCCESS;
+			goto err;
+		}
+
 		req->modes |= GNIX_FAB_RQ_M_MATCHED;
 
 		req->addr = *addr_ptr;
@@ -760,6 +779,14 @@ ssize_t _gnix_recv(struct gnix_fid_ep *ep, uint64_t buf, size_t len,
 			_gnix_fr_free(ep, req);
 		}
 	} else {
+		/* if we are peeking, we didn't find what we were looking for
+		 * return FI_ENOMSG
+		 */
+		if (r_flags & FI_PEEK) {
+			ret = -FI_ENOMSG;
+			goto err;
+		}
+
 		/* Add new posted receive request. */
 		req = _gnix_fr_alloc(ep);
 		if (req == NULL) {

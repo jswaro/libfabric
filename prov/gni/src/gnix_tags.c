@@ -576,7 +576,7 @@ struct gnix_fab_req *_gnix_match_tag(
 		void *context,
 		struct gnix_address *addr)
 {
-	if (flags & FI_PEEK)
+	if ((flags & FI_PEEK) && !(flags & FI_DISCARD))
 		return __peek_by_tag_and_addr(ts, tag, ignore, flags,
 				context, addr);
 	else

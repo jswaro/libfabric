@@ -542,7 +542,28 @@ static ssize_t gnix_ep_trecvmsg(struct fid_ep *ep,
 			.data = msg->data
 	};
 
-	clean_flags = (flags & GNIX_RECVMSG_FLAGS) | GNIX_MSG_TAGGED;
+	clean_flags = (flags & (GNIX_TRECVMSG_FLAGS)) | GNIX_MSG_TAGGED;
+
+	/* From the fi_tagged man page regarding the use of FI_CLAIM:
+	 *
+	 * In order to use the FI_CLAIM flag, an  application  must  supply  a
+     * struct  fi_context  structure as the context for the receive opera-
+     * tion.  The same fi_context structure used for an FI_PEEK + FI_CLAIM
+     * operation must be used by the paired FI_CLAIM request.
+	 */
+	if ((flags & FI_CLAIM) && _msg.context == NULL)
+		return -FI_EINVAL;
+
+	/* From the fi_tagged man page regaring the use of FI_DISCARD:
+	 *
+	 * This  flag  must  be used in conjunction with either
+     * FI_PEEK or FI_CLAIM.
+     *
+     * Note: I suspect the use of all three flags at the same time is invalid,
+     * but the man page does not say that it is.
+     */
+	if ((flags & FI_DISCARD) && !(flags & (FI_PEEK | FI_CLAIM)))
+		return -FI_EINVAL;
 
 	return __ep_recvmsg(ep, &_msg, clean_flags, msg->tag,
 			msg->ignore);
