@@ -258,8 +258,9 @@ Test(gnix_cancel, cancel_ep_send)
 	gnix_ep = container_of(ep[0], struct gnix_fid_ep, ep_fid);
 	req = _gnix_fr_alloc(gnix_ep);
 
-	req->loc_addr = 0xdeadbeef;
-	req->len = 128;
+	req->msg.send_addr = 0xdeadbeef;
+	req->msg.send_len = 128;
+	req->type = GNIX_FAB_RQ_SEND;
 
 	/* find vc, insert request */
 	fastlock_acquire(&gnix_ep->vc_list_lock);

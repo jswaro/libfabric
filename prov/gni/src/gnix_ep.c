@@ -1172,6 +1172,10 @@ static ssize_t gnix_ep_cancel(fid_t fid, void *context)
 	struct gnix_fab_req *req;
 	struct gnix_fid_cq *err_cq = NULL;
 	struct gnix_fid_cntr *err_cntr = NULL;
+	void *addr;
+	uint64_t tag, flags;
+	size_t len;
+	int is_send = 0;
 
 	ep = container_of(fid, struct gnix_fid_ep, ep_fid.fid);
 
@@ -1191,6 +1195,7 @@ static ssize_t gnix_ep_cancel(fid_t fid, void *context)
 			err_cntr = ep->recv_cntr;
 		}
 	} else {
+		is_send = 1;
 		err_cq = ep->send_cq;
 		err_cntr = ep->send_cntr;
 	}
@@ -1201,9 +1206,26 @@ static ssize_t gnix_ep_cancel(fid_t fid, void *context)
 
 	if (err_cq) {
 		/* add canceled event */
-		_gnix_cq_add_error(err_cq, context, req->flags,
-				req->len, (void *) req->loc_addr, 0 /* data */, req->tag,
-				req->len, FI_ECANCELED, -FI_ECANCELED, 0);
+		if (!(req->type == GNIX_FAB_RQ_RDMA_READ ||
+				req->type == GNIX_FAB_RQ_RDMA_WRITE)) {
+			if (!is_send) {
+				addr = (void *) req->msg.recv_addr;
+				len = req->msg.recv_len;
+			} else {
+				addr = (void *) req->msg.send_addr;
+				len = req->msg.send_len;
+			}
+			tag = req->msg.tag;
+		} else {
+			/* rma information */
+			addr = (void *) req->rma.loc_addr;
+			len = req->rma.len;
+			tag = 0;
+		}
+		flags = req->flags;
+
+		_gnix_cq_add_error(err_cq, context, flags, len, addr, 0 /* data */,
+				tag, len, FI_ECANCELED, -FI_ECANCELED, 0);
 	}
 
 	if (err_cntr) {

@@ -69,7 +69,7 @@
 	} while(0)
 #endif
 
-struct timeval time_begin, time_End, time_diff;
+struct timeval begin, end;
 
 static struct fid_fabric *fab;
 static struct fid_domain *dom;
@@ -400,14 +400,14 @@ Test(rdm_fi_pdc, peek_no_event)
 	struct fi_msg_tagged msg;
 	struct iovec iov;
 
-	build_message(&msg, &iov, target, len, &rem_mr, gni_addr[0],
-			source, len, 0);
+	build_message(&msg, &iov, target, 128, (void *) &rem_mr, gni_addr[0],
+			source, 128, 0);
 
 	ret = fi_trecvmsg(ep[1], &msg, FI_PEEK);
 	cr_assert_eq(ret, -FI_ENOMSG);
 }
 
-Test(rdm_fi_pdc, peek_event_present_buff_provided)
+static void pdc_peek_event_present_buffer_provided(int len)
 {
 	/* for each message size (regardless of smsg or rendezvous),
 	 *   send a message, wait for the send completion, then perform a peek.
@@ -422,7 +422,7 @@ Test(rdm_fi_pdc, peek_event_present_buff_provided)
 	 *   during the peek for which some of the data can be written.
 	 *
 	 *   	An  application  may supply a buffer as part of the peek operation.
-     * 	   	If given, the provider may return a copy of the message data.
+	 * 	   	If given, the provider may return a copy of the message data.
 	 *
 	 *	 Ideally, both cases should be tested, where the provider returns a
 	 *	 NULL pointer indicating that no data was available yet even though
@@ -431,13 +431,13 @@ Test(rdm_fi_pdc, peek_event_present_buff_provided)
 	 *	 applicable to smsg.
 	 *
 	 * The returned completion data will indicate
-     * the meta-data associated with the  message,  such  as  the  message
-     * length,  completion  flags,  available  CQ  data,  tag,  and source
-     * address.  The data available is subject  to  the  completion  entry
-     * format (e.g.  struct fi_cq_tagged_entry).
-     *
-     * this should check to see if the buf provided actually has data in it
-     * after a successful peek
+	 * the meta-data associated with the  message,  such  as  the  message
+	 * length,  completion  flags,  available  CQ  data,  tag,  and source
+	 * address.  The data available is subject  to  the  completion  entry
+	 * format (e.g.  struct fi_cq_tagged_entry).
+	 *
+	 * this should check to see if the buf provided actually has data in it
+	 * after a successful peek
 	 */
 
 	int ret;
@@ -452,12 +452,12 @@ Test(rdm_fi_pdc, peek_event_present_buff_provided)
 	ret = fi_tsend(ep[0], source, len, loc_mr, gni_addr[1], len, target);
 	cr_assert_eq(ret, FI_SUCCESS);
 
-	build_message(&msg, &iov, target, len, &rem_mr, gni_addr[0],
+	build_message(&msg, &iov, target, len, (void *) &rem_mr, gni_addr[0],
 			source, len, 0);
 
 	/* we are looking for a single s_cqe and no d_cqe, and plan to spin for
 	 *   1 second after finding the s_cqe */
-	__progress_cqs(msg_cq, s_cqe, NULL, 1, 0, 1);
+	__progress_cqs(msg_cq, &s_cqe, NULL, 1, 0, 1);
 
 	validate_cqe_contents(&s_cqe, source, len, len, target);
 
@@ -465,7 +465,7 @@ Test(rdm_fi_pdc, peek_event_present_buff_provided)
 	cr_assert_eq(ret, FI_SUCCESS);
 
 	/* we are looking for a single d_cqe and no s_cqe, with no spin after */
-	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
+	__progress_cqs(msg_cq, NULL, &d_cqe, 0, 1, 0);
 
 	/* ensure the dest cqe has the correct information */
 	validate_cqe_with_message(&d_cqe, &msg);
@@ -477,13 +477,19 @@ Test(rdm_fi_pdc, peek_event_present_buff_provided)
 	cr_assert_eq(ret, FI_SUCCESS);
 
 	/* get the last cqe */
-	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
+	__progress_cqs(msg_cq, NULL, &d_cqe, 0, 1, 0);
 
 	validate_cqe_with_message(&d_cqe, &msg);
 	cr_assert(rdm_fi_pdc_check_data(source, target, len), "Data mismatch");
 }
 
-Test(rdm_fi_pdc, peek_event_present_no_buff_provided)
+Test(rdm_fi_pdc, peek_event_present_buff_provided)
+{
+	rdm_fi_pdc_xfer_for_each_size(pdc_peek_event_present_buffer_provided,
+			0, BUF_SZ);
+}
+
+static void pdc_peek_event_present_no_buff_provided(int len)
 {
 	/* for each message size (regardless of smsg or rendezvous),
 	 *   send a message, wait for the send completion, then perform a peek.
@@ -495,10 +501,10 @@ Test(rdm_fi_pdc, peek_event_present_no_buff_provided)
 	 *   the peek and for the post.
 	 *
 	 * The returned completion data will indicate
-       the meta-data associated with the  message,  such  as  the  message
-       length,  completion  flags,  available  CQ  data,  tag,  and source
-       address.  The data available is subject  to  the  completion  entry
-       format (e.g.  struct fi_cq_tagged_entry).
+	   the meta-data associated with the  message,  such  as  the  message
+	   length,  completion  flags,  available  CQ  data,  tag,  and source
+	   address.  The data available is subject  to  the  completion  entry
+	   format (e.g.  struct fi_cq_tagged_entry).
 	 */
 
 	int ret;
@@ -513,12 +519,12 @@ Test(rdm_fi_pdc, peek_event_present_no_buff_provided)
 	ret = fi_tsend(ep[0], source, len, loc_mr, gni_addr[1], len, target);
 	cr_assert_eq(ret, FI_SUCCESS);
 
-	build_message(&msg, &iov, target, len, &rem_mr, gni_addr[0],
+	build_message(&msg, &iov, target, len, (void *) &rem_mr, gni_addr[0],
 				source, len, 0);
 
 	/* we are looking for a single s_cqe and no d_cqe, and plan to spin for
 	 *   1 second after finding the s_cqe */
-	__progress_cqs(msg_cq, s_cqe, NULL, 1, 0, 1);
+	__progress_cqs(msg_cq, &s_cqe, NULL, 1, 0, 1);
 
 	validate_cqe_contents(&s_cqe, source, len, len, target);
 
@@ -526,7 +532,7 @@ Test(rdm_fi_pdc, peek_event_present_no_buff_provided)
 	cr_assert_eq(ret, FI_SUCCESS);
 
 	/* we are looking for a single d_cqe and no s_cqe, with no spin after */
-	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
+	__progress_cqs(msg_cq, NULL, &d_cqe, 0, 1, 0);
 
 	/* ensure the dest cqe has the correct information */
 	validate_cqe_with_message(&d_cqe, &msg);
@@ -538,14 +544,20 @@ Test(rdm_fi_pdc, peek_event_present_no_buff_provided)
 	cr_assert_eq(ret, FI_SUCCESS);
 
 	/* get the last cqe */
-	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
+	__progress_cqs(msg_cq, NULL, &d_cqe, 0, 1, 0);
 
 	validate_cqe_with_message(&d_cqe, &msg);
 
 	cr_assert(rdm_fi_pdc_check_data(source, target, len), "Data mismatch");
 }
 
-Test(rdm_fi_pdc, peek_claim_same_tag)
+Test(rdm_fi_pdc, peek_event_present_no_buff_provided)
+{
+	rdm_fi_pdc_xfer_for_each_size(pdc_peek_event_present_no_buff_provided,
+				0, BUF_SZ);
+}
+
+static void pdc_peek_claim_same_tag(int len)
 {
 	/* for each message size (regardless of smsg or rendezvous),
 	 *   send two messages, each with the same tag. Call trecvmsg with distinct
@@ -583,7 +595,7 @@ Test(rdm_fi_pdc, peek_claim_same_tag)
 
 	/* set up messages */
 	for (i = 0; i < 2; i++) {
-		build_message(&msg[i], &iov[i], dst_buf[i], len, &rem_mr, gni_addr[0],
+		build_message(&msg[i], &iov[i], dst_buf[i], len, (void *) &rem_mr, gni_addr[0],
 				src_buf[i], len, 0);
 	}
 
@@ -601,7 +613,7 @@ Test(rdm_fi_pdc, peek_claim_same_tag)
 	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
 
 	/* ensure the dest cqe has the correct information */
-	validate_cqe_with_message(&d_cqe, &msg[0]);
+	validate_cqe_with_message(d_cqe, &msg[0]);
 	memset(&d_cqe[0], 0x0, sizeof(struct fi_cq_tagged_entry));
 
 	/* now lets pull the other unclaimed message */
@@ -612,7 +624,7 @@ Test(rdm_fi_pdc, peek_claim_same_tag)
 	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
 
 	/* ensure the dest cqe has the correct information */
-	validate_cqe_with_message(&d_cqe, &msg[1]);
+	validate_cqe_with_message(d_cqe, &msg[1]);
 	memset(&d_cqe[0], 0x0, sizeof(struct fi_cq_tagged_entry));
 
 	/* pull the claimed message */
@@ -622,15 +634,20 @@ Test(rdm_fi_pdc, peek_claim_same_tag)
 	/* get the last cqe */
 	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
 
-	validate_cqe_with_message(&d_cqe, &msg[0]);
+	validate_cqe_with_message(d_cqe, &msg[0]);
 
-	cr_assert(rdm_fi_pdc_check_data_range(src_buf[0], dst_buf[0], len),
+	cr_assert(rdm_fi_pdc_check_data_range(src_buf[0], dst_buf[0], 0, 0, len),
 			"Data mismatch");
-	cr_assert(rdm_fi_pdc_check_data_range(src_buf[1], dst_buf[1], len),
+	cr_assert(rdm_fi_pdc_check_data_range(src_buf[1], dst_buf[1], len, len, len),
 			"Data mismatch");
 }
 
-Test(rdm_fi_pdc, peek_claim_unique_tag)
+Test(rdm_fi_pdc, peek_claim_same_tag)
+{
+	rdm_fi_pdc_xfer_for_each_size(pdc_peek_claim_same_tag, 0, BUF_SZ);
+}
+
+static void pdc_peek_claim_unique_tag(int len)
 {
 	/* for each message size (regardless of smsg or rendezvous),
 	 *   send two messages, each with a unique tag. Call trecvmsg with distinct
@@ -669,7 +686,7 @@ Test(rdm_fi_pdc, peek_claim_unique_tag)
 
 	/* set up messages */
 	for (i = 0; i < 2; i++) {
-		build_message(&msg[i], &iov[i], dst_buf[i], len, &rem_mr, gni_addr[0],
+		build_message(&msg[i], &iov[i], dst_buf[i], len, (void *) &rem_mr, gni_addr[0],
 				src_buf[i], len + i, 0);
 	}
 
@@ -687,7 +704,7 @@ Test(rdm_fi_pdc, peek_claim_unique_tag)
 	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
 
 	/* ensure the dest cqe has the correct information */
-	validate_cqe_with_message(&d_cqe, &msg[0]);
+	validate_cqe_with_message(d_cqe, &msg[0]);
 	memset(&d_cqe[0], 0x0, sizeof(struct fi_cq_tagged_entry));
 
 	/* now lets pull the other unclaimed message */
@@ -698,7 +715,7 @@ Test(rdm_fi_pdc, peek_claim_unique_tag)
 	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
 
 	/* ensure the dest cqe has the correct information */
-	validate_cqe_with_message(&d_cqe, &msg[1]);
+	validate_cqe_with_message(d_cqe, &msg[1]);
 	memset(&d_cqe[0], 0x0, sizeof(struct fi_cq_tagged_entry));
 
 	/* pull the claimed message */
@@ -708,15 +725,20 @@ Test(rdm_fi_pdc, peek_claim_unique_tag)
 	/* get the last cqe */
 	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
 
-	validate_cqe_with_message(&d_cqe, &msg[0]);
+	validate_cqe_with_message(d_cqe, &msg[0]);
 
-	cr_assert(rdm_fi_pdc_check_data_range(src_buf[0], dst_buf[0], len),
+	cr_assert(rdm_fi_pdc_check_data_range(src_buf[0], dst_buf[0], 0, 0, len),
 			"Data mismatch");
-	cr_assert(rdm_fi_pdc_check_data_range(src_buf[1], dst_buf[1], len),
+	cr_assert(rdm_fi_pdc_check_data_range(src_buf[1], dst_buf[1], len, len, len),
 			"Data mismatch");
 }
 
-Test(rdm_fi_pdc, peek_discard)
+Test(rdm_fi_pdc, peek_claim_unique_tag)
+{
+	rdm_fi_pdc_xfer_for_each_size(pdc_peek_claim_unique_tag, 0, BUF_SZ);
+}
+
+static void pdc_peek_discard(int len)
 {
 	/* for each message size (regardless of smsg or rendezvous),
 	 *   send one message. Wait for the send completion to arrive then perform
@@ -738,12 +760,12 @@ Test(rdm_fi_pdc, peek_discard)
 	ret = fi_tsend(ep[0], source, len, loc_mr, gni_addr[1], len, target);
 	cr_assert_eq(ret, FI_SUCCESS);
 
-	build_message(&msg, &iov, target, len, &rem_mr, gni_addr[0],
+	build_message(&msg, &iov, target, len, (void *) &rem_mr, gni_addr[0],
 				source, len, 0);
 
 	/* we are looking for a single s_cqe and no d_cqe, and plan to spin for
 	 *   1 second after finding the s_cqe */
-	__progress_cqs(msg_cq, s_cqe, NULL, 1, 0, 1);
+	__progress_cqs(msg_cq, &s_cqe, NULL, 1, 0, 1);
 
 	validate_cqe_contents(&s_cqe, source, len, len, target);
 
@@ -751,7 +773,7 @@ Test(rdm_fi_pdc, peek_discard)
 	cr_assert_eq(ret, FI_SUCCESS);
 
 	/* we are looking for a single d_cqe and no s_cqe, with no spin after */
-	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
+	__progress_cqs(msg_cq, NULL, &d_cqe, 0, 1, 0);
 
 	/* ensure the dest cqe has the correct information */
 	validate_cqe_with_message(&d_cqe, &msg);
@@ -765,7 +787,12 @@ Test(rdm_fi_pdc, peek_discard)
 	cr_assert(!rdm_fi_pdc_check_data(source, target, len), "Data matched");
 }
 
-Test(rdm_fi_pdc, peek_discard_unique_tags)
+Test(rdm_fi_pdc, peek_discard)
+{
+	rdm_fi_pdc_xfer_for_each_size(pdc_peek_discard, 0, BUF_SZ);
+}
+
+static void pdc_peek_discard_unique_tags(int len)
 {
 	/* for each message size (regardless of smsg or rendezvous),
 	 *   send two messages with unique tags. Wait for the send completion to
@@ -805,7 +832,7 @@ Test(rdm_fi_pdc, peek_discard_unique_tags)
 
 	/* set up messages */
 	for (i = 0; i < 2; i++) {
-		build_message(&msg[i], &iov[i], dst_buf[i], len, &rem_mr, gni_addr[0],
+		build_message(&msg[i], &iov[i], dst_buf[i], len, (void *) &rem_mr, gni_addr[0],
 				src_buf[i], len + i, 0);
 	}
 
@@ -827,16 +854,21 @@ Test(rdm_fi_pdc, peek_discard_unique_tags)
 	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
 
 	/* ensure the dest cqe has the correct information */
-	validate_cqe_with_message(&d_cqe, &msg[1]);
+	validate_cqe_with_message(d_cqe, &msg[1]);
 	memset(&d_cqe[0], 0x0, sizeof(struct fi_cq_tagged_entry));
 
-	cr_assert(!rdm_fi_pdc_check_data_range(src_buf[0], dst_buf[0], len),
+	cr_assert(!rdm_fi_pdc_check_data_range(src_buf[0], dst_buf[0], 0, 0, len),
 			"Data mismatch");
-	cr_assert(rdm_fi_pdc_check_data_range(src_buf[1], dst_buf[1], len),
+	cr_assert(rdm_fi_pdc_check_data_range(src_buf[1], dst_buf[1], len, len, len),
 			"Data mismatch");
 }
 
-Test(rdm_fi_pdc, peek_claim_then_claim_discard)
+Test(rdm_fi_pdc, peek_discard_unique_tags)
+{
+	rdm_fi_pdc_xfer_for_each_size(pdc_peek_discard_unique_tags, 0, BUF_SZ);
+}
+
+static void pdc_peek_claim_then_claim_discard(int len)
 {
 	/* for each message size (regardless of smsg or rendezvous),
 	 *   send two messages with unique tags and parameters.
@@ -847,11 +879,11 @@ Test(rdm_fi_pdc, peek_claim_then_claim_discard)
 	 *
 	 *   From the fi_tagged man page:
 	 *   	Claimed messages can only be retrieved using a subsequent,
-     *      paired receive operation with the FI_CLAIM  flag  set.
-     *
-     *      (FI_DISCARD) flag may also be used in conjunction with FI_CLAIM in
-     *      order to retrieve and discard a message previously claimed using an
-     *      FI_PEEK + FI_CLAIM request.
+	 *      paired receive operation with the FI_CLAIM  flag  set.
+	 *
+	 *      (FI_DISCARD) flag may also be used in conjunction with FI_CLAIM in
+	 *      order to retrieve and discard a message previously claimed using an
+	 *      FI_PEEK + FI_CLAIM request.
 	 *
 	 *   Success can be measured through the following steps:
 	 *     - Verification of the correct CQE data
@@ -889,7 +921,7 @@ Test(rdm_fi_pdc, peek_claim_then_claim_discard)
 
 	/* set up messages */
 	for (i = 0; i < 2; i++) {
-		build_message(&msg[i], &iov[i], dst_buf[i], len, &rem_mr, gni_addr[0],
+		build_message(&msg[i], &iov[i], dst_buf[i], len, (void *) &rem_mr, gni_addr[0],
 				src_buf[i], len + i, 0);
 	}
 
@@ -907,7 +939,7 @@ Test(rdm_fi_pdc, peek_claim_then_claim_discard)
 	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
 
 	/* ensure the dest cqe has the correct information */
-	validate_cqe_with_message(&d_cqe, &msg[0]);
+	validate_cqe_with_message(d_cqe, &msg[0]);
 	memset(&d_cqe[0], 0x0, sizeof(struct fi_cq_tagged_entry));
 
 	/* now lets pull the other unclaimed message */
@@ -918,15 +950,20 @@ Test(rdm_fi_pdc, peek_claim_then_claim_discard)
 	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
 
 	/* ensure the dest cqe has the correct information */
-	validate_cqe_with_message(&d_cqe, &msg[1]);
+	validate_cqe_with_message(d_cqe, &msg[1]);
 	memset(&d_cqe[0], 0x0, sizeof(struct fi_cq_tagged_entry));
 
 	/* pull the claimed message */
-	ret = fi_trecvmsg(ep[1], &msg[0], FI_CLAIM | DISCARD);
+	ret = fi_trecvmsg(ep[1], &msg[0], FI_CLAIM | FI_DISCARD);
 	cr_assert_eq(ret, FI_SUCCESS);
 
-	cr_assert(!rdm_fi_pdc_check_data_range(src_buf[0], dst_buf[0], len),
+	cr_assert(!rdm_fi_pdc_check_data_range(src_buf[0], dst_buf[0], 0, 0, len),
 			"Data mismatch");
-	cr_assert(rdm_fi_pdc_check_data_range(src_buf[1], dst_buf[1], len),
+	cr_assert(rdm_fi_pdc_check_data_range(src_buf[1], dst_buf[1], len, len, len),
 			"Data mismatch");
+}
+
+Test(rdm_fi_pdc, peek_claim_then_claim_discard)
+{
+	rdm_fi_pdc_xfer_for_each_size(pdc_peek_claim_then_claim_discard, 0, BUF_SZ);
 }
