@@ -268,6 +268,7 @@ void rdm_fi_pdc_xfer_for_each_size(void (*xfer)(int len), int slen, int elen)
 	int i;
 
 	for (i = slen; i <= elen; i *= 2) {
+		printf("running test on length=%i\n", i);
 		xfer(i);
 	}
 }
@@ -324,7 +325,7 @@ static void __progress_cqs(struct fid_cq *mcq[2],
 
 	/* need to progress both CQs simultaneously for rendezvous */
 	do {
-		ret = fi_cq_read(mcq[0], &src_cqe, 1);
+		ret = fi_cq_read(mcq[0], src_cqe, 1);
 		if (ret == 1 && s_cqe_left) {
 			--s_cqe_left;
 			if (s_cqe_left == 0) {
@@ -335,7 +336,7 @@ static void __progress_cqs(struct fid_cq *mcq[2],
 			}
 		}
 
-		ret = fi_cq_read(mcq[1], &dst_cqe, 1);
+		ret = fi_cq_read(mcq[1], dst_cqe, 1);
 		if (ret == 1 && d_cqe_left) {
 			--d_cqe_left;
 			if (d_cqe_left == 0) {
@@ -349,6 +350,11 @@ static void __progress_cqs(struct fid_cq *mcq[2],
 		gettimeofday(&end, NULL);
 	} while (!(source_done && dest_done) &&
 			spin_time > elapsed_seconds(&begin, &end));
+	printf("elapsed_time=%i\n", elapsed_seconds(&begin, &end));
+
+	/* all CQEs should be pulled before exiting function */
+	cr_assert(d_cqe_left == 0);
+	cr_assert(s_cqe_left == 0);
 }
 
 static void build_message(struct fi_msg_tagged *msg, struct iovec *iov,
@@ -371,6 +377,13 @@ static void build_message(struct fi_msg_tagged *msg, struct iovec *iov,
 static void validate_cqe_contents(struct fi_cq_tagged_entry *entry,
 		void *buf, size_t len, uint64_t tag, void *context)
 {
+	//printf("buf=%p user_buf=%p\n", entry->buf, buf);
+	//printf("len=%u user_len=%u\n", entry->len, len);
+	//printf("tag=%llu user_tag=%llu\n", entry->tag, tag);
+
+	if (entry->tag != tag)
+		*((char *) 0x0) = 0xdeadbeef;
+
 	cr_assert_eq(entry->buf, buf);
 	cr_assert_eq(entry->len, len);
 	cr_assert_eq(entry->tag, tag);
@@ -486,7 +499,7 @@ static void pdc_peek_event_present_buffer_provided(int len)
 Test(rdm_fi_pdc, peek_event_present_buff_provided)
 {
 	rdm_fi_pdc_xfer_for_each_size(pdc_peek_event_present_buffer_provided,
-			0, BUF_SZ);
+			1, BUF_SZ);
 }
 
 static void pdc_peek_event_present_no_buff_provided(int len)
@@ -554,7 +567,7 @@ static void pdc_peek_event_present_no_buff_provided(int len)
 Test(rdm_fi_pdc, peek_event_present_no_buff_provided)
 {
 	rdm_fi_pdc_xfer_for_each_size(pdc_peek_event_present_no_buff_provided,
-				0, BUF_SZ);
+				1, BUF_SZ);
 }
 
 static void pdc_peek_claim_same_tag(int len)
@@ -588,7 +601,8 @@ static void pdc_peek_claim_same_tag(int len)
 
 	/* post sends */
 	for (i = 0; i < 2; i++) {
-		ret = fi_tsend(ep[i], src_buf[i], len, loc_mr, gni_addr[1], len, dst_buf[i]);
+		printf("sending message from src=%p to dst=%p\n", src_buf[i], dst_buf[i]);
+		ret = fi_tsend(ep[0], src_buf[i], len, loc_mr, gni_addr[1], len, dst_buf[i]);
 		cr_assert_eq(ret, FI_SUCCESS);
 	}
 
@@ -644,7 +658,7 @@ static void pdc_peek_claim_same_tag(int len)
 
 Test(rdm_fi_pdc, peek_claim_same_tag)
 {
-	rdm_fi_pdc_xfer_for_each_size(pdc_peek_claim_same_tag, 0, BUF_SZ);
+	rdm_fi_pdc_xfer_for_each_size(pdc_peek_claim_same_tag, 1, BUF_SZ);
 }
 
 static void pdc_peek_claim_unique_tag(int len)
@@ -678,7 +692,7 @@ static void pdc_peek_claim_unique_tag(int len)
 
 	/* post sends */
 	for (i = 0; i < 2; i++) {
-		ret = fi_tsend(ep[i], src_buf[i], len, loc_mr, gni_addr[1],
+		ret = fi_tsend(ep[0], src_buf[i], len, loc_mr, gni_addr[1],
 				len + i, dst_buf[i]);
 		cr_assert_eq(ret, FI_SUCCESS);
 	}
@@ -735,7 +749,7 @@ static void pdc_peek_claim_unique_tag(int len)
 
 Test(rdm_fi_pdc, peek_claim_unique_tag)
 {
-	rdm_fi_pdc_xfer_for_each_size(pdc_peek_claim_unique_tag, 0, BUF_SZ);
+	rdm_fi_pdc_xfer_for_each_size(pdc_peek_claim_unique_tag, 1, BUF_SZ);
 }
 
 static void pdc_peek_discard(int len)
@@ -789,7 +803,7 @@ static void pdc_peek_discard(int len)
 
 Test(rdm_fi_pdc, peek_discard)
 {
-	rdm_fi_pdc_xfer_for_each_size(pdc_peek_discard, 0, BUF_SZ);
+	rdm_fi_pdc_xfer_for_each_size(pdc_peek_discard, 1, BUF_SZ);
 }
 
 static void pdc_peek_discard_unique_tags(int len)
@@ -824,7 +838,7 @@ static void pdc_peek_discard_unique_tags(int len)
 
 	/* post sends */
 	for (i = 0; i < 2; i++) {
-		ret = fi_tsend(ep[i], src_buf[i], len, loc_mr, gni_addr[1],
+		ret = fi_tsend(ep[0], src_buf[i], len, loc_mr, gni_addr[1],
 				len + i, dst_buf[i]);
 		cr_assert_eq(ret, FI_SUCCESS);
 	}
@@ -865,7 +879,7 @@ static void pdc_peek_discard_unique_tags(int len)
 
 Test(rdm_fi_pdc, peek_discard_unique_tags)
 {
-	rdm_fi_pdc_xfer_for_each_size(pdc_peek_discard_unique_tags, 0, BUF_SZ);
+	rdm_fi_pdc_xfer_for_each_size(pdc_peek_discard_unique_tags, 1, BUF_SZ);
 }
 
 static void pdc_peek_claim_then_claim_discard(int len)
@@ -914,7 +928,7 @@ static void pdc_peek_claim_then_claim_discard(int len)
 
 	/* post sends */
 	for (i = 0; i < 2; i++) {
-		ret = fi_tsend(ep[i], src_buf[i], len, loc_mr, gni_addr[1],
+		ret = fi_tsend(ep[0], src_buf[i], len, loc_mr, gni_addr[1],
 				len + i, dst_buf[i]);
 		cr_assert_eq(ret, FI_SUCCESS);
 	}
@@ -965,5 +979,5 @@ static void pdc_peek_claim_then_claim_discard(int len)
 
 Test(rdm_fi_pdc, peek_claim_then_claim_discard)
 {
-	rdm_fi_pdc_xfer_for_each_size(pdc_peek_claim_then_claim_discard, 0, BUF_SZ);
+	rdm_fi_pdc_xfer_for_each_size(pdc_peek_claim_then_claim_discard, 1, BUF_SZ);
 }

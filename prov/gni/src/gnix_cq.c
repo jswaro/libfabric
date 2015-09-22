@@ -128,6 +128,7 @@ static void fill_cq_tagged(void *cq_entry, void *op_context, uint64_t flags,
 	entry->buf = buf;
 	entry->data = data;
 	entry->tag = tag;
+	entry->len = len;
 }
 
 static int verify_cq_attr(struct fi_cq_attr *attr, struct fi_ops_cq *ops,
