@@ -242,15 +242,29 @@ void rdm_fi_pdc_init_data(char *buf, int len, char seed)
 	rdm_fi_pdc_init_data_range(buf, 0, len, seed);
 }
 
-int rdm_fi_pdc_check_data_range(char *src, char *dst,
-		int src_start, int dst_start, int len)
+int rdm_fi_pdc_check_data_range(char *src, char *dst, int len)
 {
 	int i;
 
 	for (i = 0; i < len; i++) {
-		if (src[src_start + i] != dst[dst_start + i]) {
+		if (src[i] != dst[i]) {
 			printf("data mismatch, elem: %d, exp: %x, act: %x\n",
-				   i, src[src_start + i], dst[dst_start + i]);
+				   i, src[i], dst[i]);
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+int rdm_fi_pdc_check_data_pattern(char *buf, char pattern, int len)
+{
+	int i;
+
+	for (i = 0; i < len; i++) {
+		if (buf[i] != pattern) {
+			printf("data mismatch, elem: %d, exp: %.2x, act: %.2x\n",
+				   i, buf[i], pattern);
 			return 0;
 		}
 	}
@@ -260,7 +274,7 @@ int rdm_fi_pdc_check_data_range(char *src, char *dst,
 
 int rdm_fi_pdc_check_data(char *buf1, char *buf2, int len)
 {
-	return rdm_fi_pdc_check_data_range(buf1, buf2, 0, 0, len);
+	return rdm_fi_pdc_check_data_range(buf1, buf2, len);
 }
 
 void rdm_fi_pdc_xfer_for_each_size(void (*xfer)(int len), int slen, int elen)
@@ -268,7 +282,6 @@ void rdm_fi_pdc_xfer_for_each_size(void (*xfer)(int len), int slen, int elen)
 	int i;
 
 	for (i = slen; i <= elen; i *= 2) {
-		printf("running test on length=%i\n", i);
 		xfer(i);
 	}
 }
@@ -311,6 +324,7 @@ static void __progress_cqs(struct fid_cq *mcq[2],
 	int dest_done = 0;
 	int s_cqe_left = s_cqe_count;
 	int d_cqe_left = d_cqe_count;
+	int elapsed;
 
 	src_cqe = s_cqe;
 	dst_cqe = d_cqe;
@@ -348,9 +362,9 @@ static void __progress_cqs(struct fid_cq *mcq[2],
 		}
 
 		gettimeofday(&end, NULL);
+		elapsed = elapsed_seconds(&begin, &end);
 	} while (!(source_done && dest_done) &&
-			spin_time > elapsed_seconds(&begin, &end));
-	printf("elapsed_time=%i\n", elapsed_seconds(&begin, &end));
+			spin_time > elapsed);
 
 	/* all CQEs should be pulled before exiting function */
 	cr_assert(d_cqe_left == 0);
@@ -377,13 +391,12 @@ static void build_message(struct fi_msg_tagged *msg, struct iovec *iov,
 static void validate_cqe_contents(struct fi_cq_tagged_entry *entry,
 		void *buf, size_t len, uint64_t tag, void *context)
 {
-	//printf("buf=%p user_buf=%p\n", entry->buf, buf);
-	//printf("len=%u user_len=%u\n", entry->len, len);
-	//printf("tag=%llu user_tag=%llu\n", entry->tag, tag);
-
-	if (entry->tag != tag)
-		*((char *) 0x0) = 0xdeadbeef;
-
+	if (entry->buf != buf)
+		printf("entry->buf=%p buf=%p\n", entry->buf, buf);
+	if (entry->tag != tag) {
+		printf("entry->tag=%llu tag=%llu\n", entry->tag, tag);
+		*((char *) 0x0) = 128;
+	}
 	cr_assert_eq(entry->buf, buf);
 	cr_assert_eq(entry->len, len);
 	cr_assert_eq(entry->tag, tag);
@@ -596,12 +609,11 @@ static void pdc_peek_claim_same_tag(int len)
 	 * different data vaules for one message than for the other
 	 */
 	rdm_fi_pdc_init_data_range(source, 0, len, 0xa5);
-	rdm_fi_pdc_init_data_range(source, len, len*2, 0x5a);
+	rdm_fi_pdc_init_data_range(source, len, len, 0x5a);
 	rdm_fi_pdc_init_data(target, len*2 , 0);
 
 	/* post sends */
 	for (i = 0; i < 2; i++) {
-		printf("sending message from src=%p to dst=%p\n", src_buf[i], dst_buf[i]);
 		ret = fi_tsend(ep[0], src_buf[i], len, loc_mr, gni_addr[1], len, dst_buf[i]);
 		cr_assert_eq(ret, FI_SUCCESS);
 	}
@@ -650,9 +662,10 @@ static void pdc_peek_claim_same_tag(int len)
 
 	validate_cqe_with_message(d_cqe, &msg[0]);
 
-	cr_assert(rdm_fi_pdc_check_data_range(src_buf[0], dst_buf[0], 0, 0, len),
+	cr_assert(rdm_fi_pdc_check_data(src_buf[0], dst_buf[0], len),
 			"Data mismatch");
-	cr_assert(rdm_fi_pdc_check_data_range(src_buf[1], dst_buf[1], len, len, len),
+
+	cr_assert(rdm_fi_pdc_check_data(src_buf[1], dst_buf[1], len),
 			"Data mismatch");
 }
 
@@ -687,7 +700,7 @@ static void pdc_peek_claim_unique_tag(int len)
 	 * different data vaules for one message than for the other
 	 */
 	rdm_fi_pdc_init_data_range(source, 0, len, 0xa5);
-	rdm_fi_pdc_init_data_range(source, len, len*2, 0x5a);
+	rdm_fi_pdc_init_data_range(source, len, len, 0x5a);
 	rdm_fi_pdc_init_data(target, len*2 , 0);
 
 	/* post sends */
@@ -708,7 +721,7 @@ static void pdc_peek_claim_unique_tag(int len)
 	 *   1 second after finding the s_cqe */
 	__progress_cqs(msg_cq, s_cqe, NULL, 2, 0, 1);
 	validate_cqe_contents(&s_cqe[0], src_buf[0], len, len, dst_buf[0]);
-	validate_cqe_contents(&s_cqe[1], src_buf[1], len, len, dst_buf[1]);
+	validate_cqe_contents(&s_cqe[1], src_buf[1], len, len + 1, dst_buf[1]);
 
 	/* we should be claiming the first message */
 	ret = fi_trecvmsg(ep[1], &msg[0], FI_PEEK | FI_CLAIM);
@@ -741,9 +754,9 @@ static void pdc_peek_claim_unique_tag(int len)
 
 	validate_cqe_with_message(d_cqe, &msg[0]);
 
-	cr_assert(rdm_fi_pdc_check_data_range(src_buf[0], dst_buf[0], 0, 0, len),
+	cr_assert(rdm_fi_pdc_check_data(src_buf[0], dst_buf[0], len),
 			"Data mismatch");
-	cr_assert(rdm_fi_pdc_check_data_range(src_buf[1], dst_buf[1], len, len, len),
+	cr_assert(rdm_fi_pdc_check_data(src_buf[1], dst_buf[1], len),
 			"Data mismatch");
 }
 
@@ -798,7 +811,7 @@ static void pdc_peek_discard(int len)
 	ret = fi_trecvmsg(ep[1], &msg, FI_PEEK);
 	cr_assert_eq(ret, -FI_ENOMSG);
 
-	cr_assert(!rdm_fi_pdc_check_data(source, target, len), "Data matched");
+	cr_assert(rdm_fi_pdc_check_data_pattern(target, 0, len), "Data matched");
 }
 
 Test(rdm_fi_pdc, peek_discard)
@@ -833,7 +846,7 @@ static void pdc_peek_discard_unique_tags(int len)
 	 * different data vaules for one message than for the other
 	 */
 	rdm_fi_pdc_init_data_range(source, 0, len, 0xa5);
-	rdm_fi_pdc_init_data_range(source, len, len*2, 0x5a);
+	rdm_fi_pdc_init_data_range(source, len, len, 0x5a);
 	rdm_fi_pdc_init_data(target, len*2 , 0);
 
 	/* post sends */
@@ -854,9 +867,9 @@ static void pdc_peek_discard_unique_tags(int len)
 	 *   1 second after finding the s_cqe */
 	__progress_cqs(msg_cq, s_cqe, NULL, 2, 0, 1);
 	validate_cqe_contents(&s_cqe[0], src_buf[0], len, len, dst_buf[0]);
-	validate_cqe_contents(&s_cqe[1], src_buf[1], len, len, dst_buf[1]);
+	validate_cqe_contents(&s_cqe[1], src_buf[1], len, len + 1, dst_buf[1]);
 
-	/* we should be claiming the first message */
+	/* we should be discarding the first message */
 	ret = fi_trecvmsg(ep[1], &msg[0], FI_PEEK | FI_DISCARD);
 	cr_assert_eq(ret, FI_SUCCESS);
 
@@ -865,15 +878,16 @@ static void pdc_peek_discard_unique_tags(int len)
 	cr_assert_eq(ret, FI_SUCCESS);
 
 	/* we are looking for a single d_cqe and no s_cqe, with no spin after */
-	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
+	__progress_cqs(msg_cq, NULL, d_cqe, 0, 2, 1);
 
 	/* ensure the dest cqe has the correct information */
-	validate_cqe_with_message(d_cqe, &msg[1]);
+	validate_cqe_with_message(&d_cqe[0], &msg[0]);
+	validate_cqe_with_message(&d_cqe[1], &msg[1]);
 	memset(&d_cqe[0], 0x0, sizeof(struct fi_cq_tagged_entry));
 
-	cr_assert(!rdm_fi_pdc_check_data_range(src_buf[0], dst_buf[0], 0, 0, len),
+	cr_assert(rdm_fi_pdc_check_data_pattern(dst_buf[0], 0, len),
 			"Data mismatch");
-	cr_assert(rdm_fi_pdc_check_data_range(src_buf[1], dst_buf[1], len, len, len),
+	cr_assert(rdm_fi_pdc_check_data(src_buf[1], dst_buf[1], len),
 			"Data mismatch");
 }
 
@@ -923,7 +937,7 @@ static void pdc_peek_claim_then_claim_discard(int len)
 	 * different data vaules for one message than for the other
 	 */
 	rdm_fi_pdc_init_data_range(source, 0, len, 0xa5);
-	rdm_fi_pdc_init_data_range(source, len, len*2, 0x5a);
+	rdm_fi_pdc_init_data_range(source, len, len, 0x5a);
 	rdm_fi_pdc_init_data(target, len*2 , 0);
 
 	/* post sends */
@@ -943,7 +957,7 @@ static void pdc_peek_claim_then_claim_discard(int len)
 	 *   1 second after finding the s_cqe */
 	__progress_cqs(msg_cq, s_cqe, NULL, 2, 0, 1);
 	validate_cqe_contents(&s_cqe[0], src_buf[0], len, len, dst_buf[0]);
-	validate_cqe_contents(&s_cqe[1], src_buf[1], len, len, dst_buf[1]);
+	validate_cqe_contents(&s_cqe[1], src_buf[1], len, len + 1, dst_buf[1]);
 
 	/* we should be claiming the first message */
 	ret = fi_trecvmsg(ep[1], &msg[0], FI_PEEK | FI_CLAIM);
@@ -971,9 +985,9 @@ static void pdc_peek_claim_then_claim_discard(int len)
 	ret = fi_trecvmsg(ep[1], &msg[0], FI_CLAIM | FI_DISCARD);
 	cr_assert_eq(ret, FI_SUCCESS);
 
-	cr_assert(!rdm_fi_pdc_check_data_range(src_buf[0], dst_buf[0], 0, 0, len),
+	cr_assert(rdm_fi_pdc_check_data_pattern(dst_buf[0], 0, len),
 			"Data mismatch");
-	cr_assert(rdm_fi_pdc_check_data_range(src_buf[1], dst_buf[1], len, len, len),
+	cr_assert(rdm_fi_pdc_check_data(src_buf[1], dst_buf[1], len),
 			"Data mismatch");
 }
 

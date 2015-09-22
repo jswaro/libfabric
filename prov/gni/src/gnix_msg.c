@@ -770,7 +770,7 @@ ssize_t _gnix_recv(struct gnix_fid_ep *ep, uint64_t buf, size_t len,
 		r_ignore = ~0;
 	}
 
-	printf("receiving message on buf=%p len=%i tag=%i flags=%.16llX\n", buf, len, tag, r_flags);
+	//printf("receiving message on buf=%p len=%i tag=%i flags=%.16llX\n", buf, len, tag, r_flags);
 	fastlock_acquire(queue_lock);
 
 	/* Look for a matching unexpected receive request. */
@@ -895,7 +895,7 @@ pdc_exit:
 err:
 	fastlock_release(queue_lock);
 
-	printf("ret=%i\n", ret);
+	//printf("ret=%i\n", ret);
 	return ret;
 }
 
