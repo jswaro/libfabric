@@ -1082,7 +1082,7 @@ static void pdc_peek_discard(int len)
 		case R_STATE_PEEK_DISCARD:
 			ret = fi_trecvmsg(ep[1], &msg, FI_PEEK | FI_DISCARD);
 			if (ret == FI_SUCCESS)
-				r_state = R_STATE_PEEK_CLAIM_WAIT_CQ;
+				r_state = R_STATE_PEEK_DISCARD_WAIT_CQ;
 			break;
 		case R_STATE_PEEK_DISCARD_WAIT_CQ:
 			ret = fi_cq_read(msg_cq[1], &d_peek_cqe, 1);
