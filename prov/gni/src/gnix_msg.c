@@ -189,6 +189,28 @@ static int __gnix_rndzv_req_complete(void *arg)
 	return gnixu_to_fi_errno(status);
 }
 
+static int __gnix_rndzv_req_send_comp(void *arg)
+{
+	struct gnix_fab_req *req = (struct gnix_fab_req *)arg;
+	struct gnix_fid_ep *ep = req->gnix_ep;
+	struct gnix_nic *nic = ep->nic;
+	struct gnix_tx_descriptor *txd;
+	gni_return_t status;
+	int rc;
+
+	rc = _gnix_nic_tx_alloc(nic, &txd);
+	if (rc) {
+		GNIX_INFO(FI_LOG_EP_DATA, "_gnix_nic_tx_alloc() failed: %d\n",
+			 rc);
+		return -FI_EAGAIN;
+	}
+
+	txd->completer_fn = NULL;
+	txd->req = req;
+
+	return __gnix_rndzv_req_complete(txd);
+}
+
 static int __gnix_rndzv_req(void *arg)
 {
 	struct gnix_fab_req *req = (struct gnix_fab_req *)arg;
@@ -710,13 +732,20 @@ static int  __gnix_discard_request(struct gnix_fid_ep *ep,
 		uint64_t src_addr)
 {
 	int ret;
-	int rendezvous = req->msg.send_flags & GNIX_MSG_RENDEZVOUS;
+	int rendezvous = !!(req->msg.send_flags & GNIX_MSG_RENDEZVOUS);
+
+	GNIX_INFO(FI_LOG_EP_DATA, "discarding req, %p", req);
 
 	if (rendezvous) {
 		/* return a send completion so the sender knows the request/data
 		 * was sent, but discard the data locally
 		 */
 		req->gnix_ep = ep;
+
+		req->msg.recv_addr = (uint64_t) addr;
+		req->msg.recv_len = len;
+		req->user_context = context;
+		req->msg.tag = tag;
 
 		/* TODO: prevent re-lookup of src_addr */
 		ret = _gnix_ep_get_vc(ep, src_addr, &req->vc);
@@ -727,8 +756,12 @@ static int  __gnix_discard_request(struct gnix_fid_ep *ep,
 			return ret;
 		}
 
+		GNIX_INFO(FI_LOG_EP_DATA,
+				"returning rndzv completion for req, %p", req);
+
+
 		/* send completion data. */
-		req->send_fn = __gnix_rndzv_req_complete;
+		req->send_fn = __gnix_rndzv_req_send_comp;
 		ret = _gnix_vc_queue_req(req);
 	} else {
 		/* data has already been delivered, so just discard it */
