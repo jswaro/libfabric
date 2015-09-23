@@ -70,6 +70,7 @@
 #endif
 
 struct timeval begin, end;
+struct timeval loop_start, loop_end;
 
 static struct fid_fabric *fab;
 static struct fid_domain *dom;
@@ -82,11 +83,12 @@ size_t gni_addr[2];
 static struct fid_cq *msg_cq[2];
 static struct fi_cq_attr cq_attr;
 
-#define BUF_SZ (8*1024)
+#define BUF_SZ (64*1024)
 char *target;
 char *source;
 struct fid_mr *rem_mr, *loc_mr;
 uint64_t mr_key;
+const int max_test_time = 5;
 
 void rdm_fi_pdc_setup(void)
 {
@@ -282,9 +284,46 @@ void rdm_fi_pdc_xfer_for_each_size(void (*xfer)(int len), int slen, int elen)
 	int i;
 
 	for (i = slen; i <= elen; i *= 2) {
+		printf("running test on size %d bytes\n", i);
 		xfer(i);
 	}
 }
+
+enum send_state {
+	S_STATE_SEND_MSG_1 = 0,
+	S_STATE_SEND_MSG_1_WAIT_CQ,
+	S_STATE_SEND_MSG_2,
+	S_STATE_SEND_MSG_2_WAIT_CQ,
+	S_STATE_DONE,
+};
+
+#define SHOULD_BLIND_POLL_SCQ(state) \
+	((state) == S_STATE_DONE)
+
+enum recv_state {
+	R_STATE_PEEK = 0,
+	R_STATE_PEEK_WAIT_CQ,
+	R_STATE_PEEK_CLAIM,
+	R_STATE_PEEK_CLAIM_WAIT_CQ,
+	R_STATE_PEEK_DISCARD,
+	R_STATE_PEEK_DISCARD_WAIT_CQ,
+	R_STATE_CLAIM,
+	R_STATE_CLAIM_WAIT_CQ,
+	R_STATE_CLAIM_DISCARD,
+	R_STATE_RECV_MSG_1,
+	R_STATE_RECV_MSG_1_WAIT_CQ,
+	R_STATE_RECV_MSG_2,
+	R_STATE_RECV_MSG_2_WAIT_CQ,
+	R_STATE_DONE,
+};
+
+#define SHOULD_BLIND_POLL_RCQ(state) \
+	((state) != R_STATE_PEEK_WAIT_CQ && \
+			state != R_STATE_PEEK_CLAIM_WAIT_CQ && \
+			state != R_STATE_PEEK_DISCARD_WAIT_CQ && \
+			state != R_STATE_CLAIM_WAIT_CQ && \
+			state != R_STATE_RECV_MSG_1_WAIT_CQ && \
+			state != R_STATE_RECV_MSG_2_WAIT_CQ)
 
 /*******************************************************************************
  * Test MSG functions
@@ -471,40 +510,86 @@ static void pdc_peek_event_present_buffer_provided(int len)
 	struct iovec iov;
 	struct fi_cq_tagged_entry s_cqe;
 	struct fi_cq_tagged_entry d_cqe;
+	struct fi_cq_tagged_entry d_peek_cqe;
+	struct fi_cq_tagged_entry trash;
+	enum send_state s_state = S_STATE_SEND_MSG_1;
+	enum recv_state r_state = R_STATE_PEEK;
+	int elapsed;
 
 	rdm_fi_pdc_init_data(source, len, 0xab);
 	rdm_fi_pdc_init_data(target, len, 0);
 
-	ret = fi_tsend(ep[0], source, len, loc_mr, gni_addr[1], len, target);
-	cr_assert_eq(ret, FI_SUCCESS);
 
 	build_message(&msg, &iov, target, len, (void *) &rem_mr, gni_addr[0],
 			source, len, 0);
 
-	/* we are looking for a single s_cqe and no d_cqe, and plan to spin for
-	 *   1 second after finding the s_cqe */
-	__progress_cqs(msg_cq, &s_cqe, NULL, 1, 0, 1);
+	gettimeofday(&loop_start, NULL);
+	do {
+		if (SHOULD_BLIND_POLL_SCQ(s_state))
+			fi_cq_read(msg_cq[0], &trash, 1);
 
+		if (SHOULD_BLIND_POLL_RCQ(r_state))
+			fi_cq_read(msg_cq[1], &trash, 1);
+
+		switch (s_state) {
+		case S_STATE_SEND_MSG_1:
+			ret = fi_tsend(ep[0], source, len, loc_mr, gni_addr[1], len, target);
+			cr_assert_eq(ret, FI_SUCCESS);
+
+			s_state = S_STATE_SEND_MSG_1_WAIT_CQ;
+			break;
+		case S_STATE_SEND_MSG_1_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[0], &s_cqe, 1);
+			if (ret == 1)
+				s_state = S_STATE_DONE;
+			break;
+		case S_STATE_DONE:
+			break;
+		default:
+			cr_assert(0 == 1, "unreachable state");
+			break;
+		}
+
+		switch (r_state) {
+		case R_STATE_PEEK:
+			ret = fi_trecvmsg(ep[1], &msg, FI_PEEK);
+			if (ret == FI_SUCCESS)
+				r_state = R_STATE_PEEK_WAIT_CQ;
+			break;
+		case R_STATE_PEEK_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[1], &d_peek_cqe, 1);
+			if (ret == 1)
+				r_state = R_STATE_RECV_MSG_1;
+			break;
+		case R_STATE_RECV_MSG_1:
+			ret = fi_trecvmsg(ep[1], &msg, 0);
+			cr_assert_eq(ret, FI_SUCCESS);
+
+			r_state = R_STATE_RECV_MSG_1_WAIT_CQ;
+			break;
+		case R_STATE_RECV_MSG_1_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[1], &d_cqe, 1);
+			if (ret == 1)
+				r_state = R_STATE_DONE;
+			break;
+		case R_STATE_DONE:
+			break;
+		default:
+			cr_assert(0 == 1, "unreachable state");
+			break;
+		}
+
+		gettimeofday(&loop_end, NULL);
+		elapsed = elapsed_seconds(&loop_start, &loop_end);
+	} while (elapsed < max_test_time &&
+			!(s_state == S_STATE_DONE && r_state == R_STATE_DONE));
+
+	cr_assert_eq(s_state, S_STATE_DONE);
+	cr_assert_eq(r_state, R_STATE_DONE);
+
+	/* validate the expected results */
 	validate_cqe_contents(&s_cqe, source, len, len, target);
-
-	ret = fi_trecvmsg(ep[1], &msg, FI_PEEK);
-	cr_assert_eq(ret, FI_SUCCESS);
-
-	/* we are looking for a single d_cqe and no s_cqe, with no spin after */
-	__progress_cqs(msg_cq, NULL, &d_cqe, 0, 1, 0);
-
-	/* ensure the dest cqe has the correct information */
-	validate_cqe_with_message(&d_cqe, &msg);
-
-	memset(&d_cqe, 0x0, sizeof(struct fi_cq_tagged_entry));
-
-	/* post the request */
-	ret = fi_trecvmsg(ep[1], &msg, 0);
-	cr_assert_eq(ret, FI_SUCCESS);
-
-	/* get the last cqe */
-	__progress_cqs(msg_cq, NULL, &d_cqe, 0, 1, 0);
-
+	validate_cqe_with_message(&d_peek_cqe, &msg);
 	validate_cqe_with_message(&d_cqe, &msg);
 	cr_assert(rdm_fi_pdc_check_data(source, target, len), "Data mismatch");
 }
@@ -538,6 +623,11 @@ static void pdc_peek_event_present_no_buff_provided(int len)
 	struct iovec iov;
 	struct fi_cq_tagged_entry s_cqe;
 	struct fi_cq_tagged_entry d_cqe;
+	struct fi_cq_tagged_entry d_peek_cqe;
+	struct fi_cq_tagged_entry trash;
+	enum send_state s_state = S_STATE_SEND_MSG_1;
+	enum recv_state r_state = R_STATE_PEEK;
+	int elapsed;
 
 	rdm_fi_pdc_init_data(source, len, 0xab);
 	rdm_fi_pdc_init_data(target, len, 0);
@@ -548,32 +638,74 @@ static void pdc_peek_event_present_no_buff_provided(int len)
 	build_message(&msg, &iov, target, len, (void *) &rem_mr, gni_addr[0],
 				source, len, 0);
 
-	/* we are looking for a single s_cqe and no d_cqe, and plan to spin for
-	 *   1 second after finding the s_cqe */
-	__progress_cqs(msg_cq, &s_cqe, NULL, 1, 0, 1);
+	gettimeofday(&loop_start, NULL);
+	do {
+		if (SHOULD_BLIND_POLL_SCQ(s_state))
+			fi_cq_read(msg_cq[0], &trash, 1);
 
+		if (SHOULD_BLIND_POLL_RCQ(r_state))
+			fi_cq_read(msg_cq[1], &trash, 1);
+
+		switch (s_state) {
+		case S_STATE_SEND_MSG_1:
+			ret = fi_tsend(ep[0], source, len, loc_mr, gni_addr[1], len, target);
+			cr_assert_eq(ret, FI_SUCCESS);
+
+			s_state = S_STATE_SEND_MSG_1_WAIT_CQ;
+			break;
+		case S_STATE_SEND_MSG_1_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[0], &s_cqe, 1);
+			if (ret == 1)
+				s_state = S_STATE_DONE;
+			break;
+		case S_STATE_DONE:
+			break;
+		default:
+			cr_assert(0 == 1, "unreachable state");
+			break;
+		}
+
+		switch (r_state) {
+		case R_STATE_PEEK:
+			ret = fi_trecvmsg(ep[1], &msg, FI_PEEK);
+			if (ret == FI_SUCCESS)
+				r_state = R_STATE_PEEK_WAIT_CQ;
+			break;
+		case R_STATE_PEEK_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[1], &d_peek_cqe, 1);
+			if (ret == 1)
+				r_state = R_STATE_RECV_MSG_1;
+			break;
+		case R_STATE_RECV_MSG_1:
+			ret = fi_trecvmsg(ep[1], &msg, 0);
+			cr_assert_eq(ret, FI_SUCCESS);
+
+			r_state = R_STATE_RECV_MSG_1_WAIT_CQ;
+			break;
+		case R_STATE_RECV_MSG_1_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[1], &d_cqe, 1);
+			if (ret == 1)
+				r_state = R_STATE_DONE;
+			break;
+		case R_STATE_DONE:
+			break;
+		default:
+			cr_assert(0 == 1, "unreachable state");
+			break;
+		}
+
+		gettimeofday(&loop_end, NULL);
+		elapsed = elapsed_seconds(&loop_start, &loop_end);
+	} while (elapsed < max_test_time &&
+			!(s_state == S_STATE_DONE && r_state == R_STATE_DONE));
+
+	cr_assert_eq(s_state, S_STATE_DONE);
+	cr_assert_eq(r_state, R_STATE_DONE);
+
+	/* verify test execution correctness */
 	validate_cqe_contents(&s_cqe, source, len, len, target);
-
-	ret = fi_trecvmsg(ep[1], &msg, FI_PEEK);
-	cr_assert_eq(ret, FI_SUCCESS);
-
-	/* we are looking for a single d_cqe and no s_cqe, with no spin after */
-	__progress_cqs(msg_cq, NULL, &d_cqe, 0, 1, 0);
-
-	/* ensure the dest cqe has the correct information */
 	validate_cqe_with_message(&d_cqe, &msg);
-
-	memset(&d_cqe, 0x0, sizeof(struct fi_cq_tagged_entry));
-
-	/* post the request */
-	ret = fi_trecvmsg(ep[1], &msg, 0);
-	cr_assert_eq(ret, FI_SUCCESS);
-
-	/* get the last cqe */
-	__progress_cqs(msg_cq, NULL, &d_cqe, 0, 1, 0);
-
-	validate_cqe_with_message(&d_cqe, &msg);
-
+	validate_cqe_with_message(&d_peek_cqe, &msg);
 	cr_assert(rdm_fi_pdc_check_data(source, target, len), "Data mismatch");
 }
 
@@ -597,13 +729,19 @@ static void pdc_peek_claim_same_tag(int len)
 	 *   depend on the order in which trecvmsg is called.
 	 */
 
-	int ret, i;
+	int ret, i, j;
 	struct fi_msg_tagged msg[2];
 	struct iovec iov[2];
 	struct fi_cq_tagged_entry s_cqe[2];
 	struct fi_cq_tagged_entry d_cqe[2];
+	struct fi_cq_tagged_entry *src_cqe[2] = {NULL, NULL};
 	char *src_buf[2] = {source, source + len};
 	char *dst_buf[2] = {target, target + len};
+	struct fi_cq_tagged_entry d_peek_cqe;
+	struct fi_cq_tagged_entry trash;
+	enum send_state s_state = S_STATE_SEND_MSG_1;
+	enum recv_state r_state = R_STATE_PEEK_CLAIM;
+	int elapsed;
 
 	/* initialize the initial data range on the source buffer to have
 	 * different data vaules for one message than for the other
@@ -612,55 +750,113 @@ static void pdc_peek_claim_same_tag(int len)
 	rdm_fi_pdc_init_data_range(source, len, len, 0x5a);
 	rdm_fi_pdc_init_data(target, len*2 , 0);
 
-	/* post sends */
-	for (i = 0; i < 2; i++) {
-		ret = fi_tsend(ep[0], src_buf[i], len, loc_mr, gni_addr[1], len, dst_buf[i]);
-		cr_assert_eq(ret, FI_SUCCESS);
-	}
-
-
 	/* set up messages */
 	for (i = 0; i < 2; i++) {
-		build_message(&msg[i], &iov[i], dst_buf[i], len, (void *) &rem_mr, gni_addr[0],
-				src_buf[i], len, 0);
+		build_message(&msg[i], &iov[i], dst_buf[i], len, (void *) &rem_mr,
+				gni_addr[0], src_buf[i], len, 0);
 	}
 
-	/* we are looking for two s_cqes and no d_cqe, and plan to spin for
-	 *   1 second after finding the s_cqe */
-	__progress_cqs(msg_cq, s_cqe, NULL, 2, 0, 1);
-	validate_cqe_contents(&s_cqe[0], src_buf[0], len, len, dst_buf[0]);
-	validate_cqe_contents(&s_cqe[1], src_buf[1], len, len, dst_buf[1]);
+	gettimeofday(&loop_start, NULL);
+	do {
+		if (SHOULD_BLIND_POLL_SCQ(s_state))
+			fi_cq_read(msg_cq[0], &trash, 1);
 
-	/* we should be claiming the first message */
-	ret = fi_trecvmsg(ep[1], &msg[0], FI_PEEK | FI_CLAIM);
-	cr_assert_eq(ret, FI_SUCCESS);
+		if (SHOULD_BLIND_POLL_RCQ(r_state))
+			fi_cq_read(msg_cq[1], &trash, 1);
 
-	/* we are looking for a single d_cqe and no s_cqe, with no spin after */
-	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
+		switch (s_state) {
+		case S_STATE_SEND_MSG_1:
+			ret = fi_tsend(ep[0], src_buf[0], len, loc_mr, gni_addr[1], len, dst_buf[0]);
+			cr_assert_eq(ret, FI_SUCCESS);
 
-	/* ensure the dest cqe has the correct information */
-	validate_cqe_with_message(d_cqe, &msg[0]);
-	memset(&d_cqe[0], 0x0, sizeof(struct fi_cq_tagged_entry));
+			s_state = S_STATE_SEND_MSG_2;
+			break;
+		case S_STATE_SEND_MSG_2:
+			ret = fi_tsend(ep[0], src_buf[1], len, loc_mr, gni_addr[1], len, dst_buf[1]);
+			cr_assert_eq(ret, FI_SUCCESS);
 
-	/* now lets pull the other unclaimed message */
-	ret = fi_trecvmsg(ep[1], &msg[1], 0);
-	cr_assert_eq(ret, FI_SUCCESS);
+			s_state = S_STATE_SEND_MSG_1_WAIT_CQ;
+			break;
+		case S_STATE_SEND_MSG_1_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[0], &s_cqe[0], 1);
+			if (ret == 1) {
+				s_state = S_STATE_SEND_MSG_2_WAIT_CQ;
+			}
+			break;
+		case S_STATE_SEND_MSG_2_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[0], &s_cqe[1], 1);
+			if (ret == 1) {
+				s_state = S_STATE_DONE;
+			}
+			break;
+		case S_STATE_DONE:
+			break;
+		default:
+			cr_assert(0 == 1, "unreachable state");
+			break;
+		}
 
-	/* we are looking for a single d_cqe and no s_cqe, with no spin after */
-	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
+		switch (r_state) {
+		case R_STATE_PEEK_CLAIM:
+			ret = fi_trecvmsg(ep[1], &msg[0], FI_PEEK | FI_CLAIM);
+			if (ret == FI_SUCCESS)
+				r_state = R_STATE_PEEK_CLAIM_WAIT_CQ;
+			break;
+		case R_STATE_PEEK_CLAIM_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[1], &d_peek_cqe, 1);
+			if (ret == 1) {
+				r_state = R_STATE_RECV_MSG_2;
+			}
+			break;
+		case R_STATE_RECV_MSG_2:
+			ret = fi_trecvmsg(ep[1], &msg[1], 0);
+			if (ret == FI_SUCCESS)
+				r_state = R_STATE_RECV_MSG_2_WAIT_CQ;
+			break;
+		case R_STATE_RECV_MSG_2_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[1], &d_cqe[1], 1);
+			if (ret == 1) {
+				r_state = R_STATE_CLAIM;
+			}
+			break;
+		case R_STATE_CLAIM:
+			ret = fi_trecvmsg(ep[1], &msg[0], FI_CLAIM);
+			if (ret == FI_SUCCESS)
+				r_state = R_STATE_CLAIM_WAIT_CQ;
+			break;
+		case R_STATE_CLAIM_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[1], &d_cqe[0], 1);
+			if (ret == 1) {
+				r_state = R_STATE_DONE;
+			}
+			break;
+		case R_STATE_DONE:
+			break;
+		default:
+			cr_assert(0 == 1, "unreachable state");
+			break;
+		}
 
-	/* ensure the dest cqe has the correct information */
-	validate_cqe_with_message(d_cqe, &msg[1]);
-	memset(&d_cqe[0], 0x0, sizeof(struct fi_cq_tagged_entry));
+		gettimeofday(&loop_end, NULL);
+		elapsed = elapsed_seconds(&loop_start, &loop_end);
+	} while (elapsed < max_test_time &&
+			!(s_state == S_STATE_DONE && r_state == R_STATE_DONE));
 
-	/* pull the claimed message */
-	ret = fi_trecvmsg(ep[1], &msg[0], FI_CLAIM);
-	cr_assert_eq(ret, FI_SUCCESS);
+	cr_assert_eq(s_state, S_STATE_DONE);
+	cr_assert_eq(r_state, R_STATE_DONE);
 
-	/* get the last cqe */
-	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
+	/* map src cqes to src parameters */
+	for (i = 0; i < 2; i++)
+		for (j = 0; j < 2; j++)
+			if (s_cqe[i].buf == src_buf[j])
+				src_cqe[j] = &s_cqe[i];
 
-	validate_cqe_with_message(d_cqe, &msg[0]);
+	/* verify test execution correctness */
+	validate_cqe_contents(src_cqe[0], src_buf[0], len, len, dst_buf[0]);
+	validate_cqe_contents(src_cqe[1], src_buf[1], len, len, dst_buf[1]);
+	validate_cqe_with_message(&d_peek_cqe, &msg[0]);
+	validate_cqe_with_message(&d_cqe[1], &msg[1]);
+	validate_cqe_with_message(&d_cqe[0], &msg[0]);
 
 	cr_assert(rdm_fi_pdc_check_data(src_buf[0], dst_buf[0], len),
 			"Data mismatch");
@@ -688,13 +884,19 @@ static void pdc_peek_claim_unique_tag(int len)
 	 *   depend on the order in which trecvmsg is called.
 	 */
 
-	int ret, i;
+	int ret, i, j;
 	struct fi_msg_tagged msg[2];
 	struct iovec iov[2];
 	struct fi_cq_tagged_entry s_cqe[2];
 	struct fi_cq_tagged_entry d_cqe[2];
+	struct fi_cq_tagged_entry *src_cqe[2] = {NULL, NULL};
 	char *src_buf[2] = {source, source + len};
 	char *dst_buf[2] = {target, target + len};
+	struct fi_cq_tagged_entry d_peek_cqe;
+	struct fi_cq_tagged_entry trash;
+	enum send_state s_state = S_STATE_SEND_MSG_1;
+	enum recv_state r_state = R_STATE_PEEK_CLAIM;
+	int elapsed;
 
 	/* initialize the initial data range on the source buffer to have
 	 * different data vaules for one message than for the other
@@ -703,56 +905,112 @@ static void pdc_peek_claim_unique_tag(int len)
 	rdm_fi_pdc_init_data_range(source, len, len, 0x5a);
 	rdm_fi_pdc_init_data(target, len*2 , 0);
 
-	/* post sends */
-	for (i = 0; i < 2; i++) {
-		ret = fi_tsend(ep[0], src_buf[i], len, loc_mr, gni_addr[1],
-				len + i, dst_buf[i]);
-		cr_assert_eq(ret, FI_SUCCESS);
-	}
-
-
 	/* set up messages */
 	for (i = 0; i < 2; i++) {
-		build_message(&msg[i], &iov[i], dst_buf[i], len, (void *) &rem_mr, gni_addr[0],
-				src_buf[i], len + i, 0);
+		build_message(&msg[i], &iov[i], dst_buf[i], len, (void *) &rem_mr,
+				gni_addr[0], src_buf[i], len + i, 0);
 	}
 
-	/* we are looking for two s_cqes and no d_cqe, and plan to spin for
-	 *   1 second after finding the s_cqe */
-	__progress_cqs(msg_cq, s_cqe, NULL, 2, 0, 1);
-	validate_cqe_contents(&s_cqe[0], src_buf[0], len, len, dst_buf[0]);
-	validate_cqe_contents(&s_cqe[1], src_buf[1], len, len + 1, dst_buf[1]);
+	gettimeofday(&loop_start, NULL);
+	do {
+		if (SHOULD_BLIND_POLL_SCQ(s_state))
+			fi_cq_read(msg_cq[0], &trash, 1);
 
-	/* we should be claiming the first message */
-	ret = fi_trecvmsg(ep[1], &msg[0], FI_PEEK | FI_CLAIM);
-	cr_assert_eq(ret, FI_SUCCESS);
+		if (SHOULD_BLIND_POLL_RCQ(r_state))
+			fi_cq_read(msg_cq[1], &trash, 1);
 
-	/* we are looking for a single d_cqe and no s_cqe, with no spin after */
-	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
+		switch (s_state) {
+		case S_STATE_SEND_MSG_1:
+			ret = fi_tsend(ep[0], src_buf[0], len, loc_mr, gni_addr[1], len, dst_buf[0]);
+			cr_assert_eq(ret, FI_SUCCESS);
 
-	/* ensure the dest cqe has the correct information */
-	validate_cqe_with_message(d_cqe, &msg[0]);
-	memset(&d_cqe[0], 0x0, sizeof(struct fi_cq_tagged_entry));
+			s_state = S_STATE_SEND_MSG_2;
+			break;
+		case S_STATE_SEND_MSG_2:
+			ret = fi_tsend(ep[0], src_buf[1], len, loc_mr, gni_addr[1], len + 1, dst_buf[1]);
+			cr_assert_eq(ret, FI_SUCCESS);
 
-	/* now lets pull the other unclaimed message */
-	ret = fi_trecvmsg(ep[1], &msg[1], 0);
-	cr_assert_eq(ret, FI_SUCCESS);
+			s_state = S_STATE_SEND_MSG_1_WAIT_CQ;
+			break;
+		case S_STATE_SEND_MSG_1_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[0], &s_cqe[0], 1);
+			if (ret == 1) {
+				s_state = S_STATE_SEND_MSG_2_WAIT_CQ;
+			}
+			break;
+		case S_STATE_SEND_MSG_2_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[0], &s_cqe[1], 1);
+			if (ret == 1) {
+				s_state = S_STATE_DONE;
+			}
+			break;
+		case S_STATE_DONE:
+			break;
+		default:
+			cr_assert(0 == 1, "unreachable state");
+			break;
+		}
 
-	/* we are looking for a single d_cqe and no s_cqe, with no spin after */
-	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
+		switch (r_state) {
+		case R_STATE_PEEK_CLAIM:
+			ret = fi_trecvmsg(ep[1], &msg[0], FI_PEEK | FI_CLAIM);
+			if (ret == FI_SUCCESS)
+				r_state = R_STATE_PEEK_CLAIM_WAIT_CQ;
+			break;
+		case R_STATE_PEEK_CLAIM_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[1], &d_peek_cqe, 1);
+			if (ret == 1)
+				r_state = R_STATE_RECV_MSG_2;
+			break;
+		case R_STATE_RECV_MSG_2:
+			ret = fi_trecvmsg(ep[1], &msg[1], 0);
+			cr_assert_eq(ret, FI_SUCCESS);
 
-	/* ensure the dest cqe has the correct information */
-	validate_cqe_with_message(d_cqe, &msg[1]);
-	memset(&d_cqe[0], 0x0, sizeof(struct fi_cq_tagged_entry));
+			r_state = R_STATE_RECV_MSG_2_WAIT_CQ;
+			break;
+		case R_STATE_RECV_MSG_2_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[1], &d_cqe[1], 1);
+			if (ret == 1)
+				r_state = R_STATE_CLAIM;
+			break;
+		case R_STATE_CLAIM:
+			ret = fi_trecvmsg(ep[1], &msg[0], FI_CLAIM);
+			if (ret == FI_SUCCESS)
+				r_state = R_STATE_CLAIM_WAIT_CQ;
+			break;
+		case R_STATE_CLAIM_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[1], &d_cqe[0], 1);
+			if (ret == 1)
+				r_state = R_STATE_DONE;
+			break;
+		case R_STATE_DONE:
+			break;
+		default:
+			cr_assert(0 == 1, "unreachable state");
+			break;
+		}
 
-	/* pull the claimed message */
-	ret = fi_trecvmsg(ep[1], &msg[0], FI_CLAIM);
-	cr_assert_eq(ret, FI_SUCCESS);
+		gettimeofday(&loop_end, NULL);
+		elapsed = elapsed_seconds(&loop_start, &loop_end);
+	} while (elapsed < max_test_time &&
+			!(s_state == S_STATE_DONE && r_state == R_STATE_DONE));
 
-	/* get the last cqe */
-	__progress_cqs(msg_cq, NULL, d_cqe, 0, 1, 0);
+	cr_assert_eq(s_state, S_STATE_DONE);
+	cr_assert_eq(r_state, R_STATE_DONE);
 
-	validate_cqe_with_message(d_cqe, &msg[0]);
+	/* map src cqes to src parameters */
+	for (i = 0; i < 2; i++)
+		for (j = 0; j < 2; j++)
+			if (s_cqe[i].buf == src_buf[j])
+				src_cqe[j] = &s_cqe[i];
+
+	/* verify test execution correctness */
+	for (i = 0; i < 2; i++)
+		validate_cqe_contents(src_cqe[i], src_buf[i], len, len + i, dst_buf[i]);
+
+	validate_cqe_with_message(&d_peek_cqe, &msg[0]);
+	validate_cqe_with_message(&d_cqe[1], &msg[1]);
+	validate_cqe_with_message(&d_cqe[0], &msg[0]);
 
 	cr_assert(rdm_fi_pdc_check_data(src_buf[0], dst_buf[0], len),
 			"Data mismatch");
@@ -780,37 +1038,81 @@ static void pdc_peek_discard(int len)
 	struct iovec iov;
 	struct fi_cq_tagged_entry s_cqe;
 	struct fi_cq_tagged_entry d_cqe;
+	struct fi_cq_tagged_entry d_peek_cqe;
+	struct fi_cq_tagged_entry trash;
+	enum send_state s_state = S_STATE_SEND_MSG_1;
+	enum recv_state r_state = R_STATE_PEEK_DISCARD;
+	int elapsed;
 
 	rdm_fi_pdc_init_data(source, len, 0xab);
 	rdm_fi_pdc_init_data(target, len, 0);
 
-	ret = fi_tsend(ep[0], source, len, loc_mr, gni_addr[1], len, target);
-	cr_assert_eq(ret, FI_SUCCESS);
-
 	build_message(&msg, &iov, target, len, (void *) &rem_mr, gni_addr[0],
 				source, len, 0);
 
-	/* we are looking for a single s_cqe and no d_cqe, and plan to spin for
-	 *   1 second after finding the s_cqe */
-	__progress_cqs(msg_cq, &s_cqe, NULL, 1, 0, 1);
+	gettimeofday(&loop_start, NULL);
+	do {
+		if (SHOULD_BLIND_POLL_SCQ(s_state))
+			fi_cq_read(msg_cq[0], &trash, 1);
 
+		if (SHOULD_BLIND_POLL_RCQ(r_state))
+			fi_cq_read(msg_cq[1], &trash, 1);
+
+		switch (s_state) {
+		case S_STATE_SEND_MSG_1:
+			ret = fi_tsend(ep[0], source, len, loc_mr, gni_addr[1],
+					len, target);
+			cr_assert_eq(ret, FI_SUCCESS);
+
+			s_state = S_STATE_SEND_MSG_1_WAIT_CQ;
+			break;
+		case S_STATE_SEND_MSG_1_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[0], &s_cqe, 1);
+			if (ret == 1)
+				s_state = S_STATE_DONE;
+			break;
+		case S_STATE_DONE:
+			break;
+		default:
+			cr_assert(0 == 1, "unreachable state");
+			break;
+		}
+
+		switch (r_state) {
+		case R_STATE_PEEK_DISCARD:
+			ret = fi_trecvmsg(ep[1], &msg, FI_PEEK | FI_DISCARD);
+			if (ret == FI_SUCCESS)
+				r_state = R_STATE_PEEK_CLAIM_WAIT_CQ;
+			break;
+		case R_STATE_PEEK_DISCARD_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[1], &d_peek_cqe, 1);
+			if (ret == 1)
+				r_state = R_STATE_PEEK;
+			break;
+		case R_STATE_PEEK:
+			ret = fi_trecvmsg(ep[1], &msg, FI_PEEK);
+			cr_assert_eq(ret, -FI_ENOMSG);
+
+			r_state = R_STATE_DONE;
+			break;
+		case R_STATE_DONE:
+			break;
+		default:
+			cr_assert(0 == 1, "unreachable state");
+			break;
+		}
+
+		gettimeofday(&loop_end, NULL);
+		elapsed = elapsed_seconds(&loop_start, &loop_end);
+	} while (elapsed < max_test_time &&
+			!(s_state == S_STATE_DONE && r_state == R_STATE_DONE));
+
+	cr_assert_eq(s_state, S_STATE_DONE);
+	cr_assert_eq(r_state, R_STATE_DONE);
+
+	/* verify test execution correctness */
 	validate_cqe_contents(&s_cqe, source, len, len, target);
-
-	ret = fi_trecvmsg(ep[1], &msg, FI_PEEK | FI_DISCARD);
-	cr_assert_eq(ret, FI_SUCCESS);
-
-	/* we are looking for a single d_cqe and no s_cqe, with no spin after */
-	__progress_cqs(msg_cq, NULL, &d_cqe, 0, 1, 0);
-
-	/* ensure the dest cqe has the correct information */
-	validate_cqe_with_message(&d_cqe, &msg);
-
-	memset(&d_cqe, 0x0, sizeof(struct fi_cq_tagged_entry));
-
-	/* post the request */
-	ret = fi_trecvmsg(ep[1], &msg, FI_PEEK);
-	cr_assert_eq(ret, -FI_ENOMSG);
-
+	validate_cqe_with_message(&d_peek_cqe, &msg);
 	cr_assert(rdm_fi_pdc_check_data_pattern(target, 0, len), "Data matched");
 }
 
@@ -834,13 +1136,19 @@ static void pdc_peek_discard_unique_tags(int len)
 	 *     - Recv the first operation and verify the correct contents
 	 */
 
-	int ret, i;
+	int ret, i, j;
 	struct fi_msg_tagged msg[2];
 	struct iovec iov[2];
 	struct fi_cq_tagged_entry s_cqe[2];
 	struct fi_cq_tagged_entry d_cqe[2];
+	struct fi_cq_tagged_entry *src_cqe[2] = {NULL, NULL};
 	char *src_buf[2] = {source, source + len};
 	char *dst_buf[2] = {target, target + len};
+	struct fi_cq_tagged_entry d_peek_cqe;
+	struct fi_cq_tagged_entry trash;
+	enum send_state s_state = S_STATE_SEND_MSG_1;
+	enum recv_state r_state = R_STATE_PEEK_DISCARD;
+	int elapsed;
 
 	/* initialize the initial data range on the source buffer to have
 	 * different data vaules for one message than for the other
@@ -849,41 +1157,109 @@ static void pdc_peek_discard_unique_tags(int len)
 	rdm_fi_pdc_init_data_range(source, len, len, 0x5a);
 	rdm_fi_pdc_init_data(target, len*2 , 0);
 
-	/* post sends */
-	for (i = 0; i < 2; i++) {
-		ret = fi_tsend(ep[0], src_buf[i], len, loc_mr, gni_addr[1],
-				len + i, dst_buf[i]);
-		cr_assert_eq(ret, FI_SUCCESS);
-	}
-
-
 	/* set up messages */
 	for (i = 0; i < 2; i++) {
 		build_message(&msg[i], &iov[i], dst_buf[i], len, (void *) &rem_mr, gni_addr[0],
 				src_buf[i], len + i, 0);
 	}
 
-	/* we are looking for two s_cqes and no d_cqe, and plan to spin for
-	 *   1 second after finding the s_cqe */
-	__progress_cqs(msg_cq, s_cqe, NULL, 2, 0, 1);
+	gettimeofday(&loop_start, NULL);
+	do {
+		if (SHOULD_BLIND_POLL_SCQ(s_state))
+			fi_cq_read(msg_cq[0], &trash, 1);
+
+		if (SHOULD_BLIND_POLL_RCQ(r_state))
+			fi_cq_read(msg_cq[1], &trash, 1);
+
+		switch (s_state) {
+		case S_STATE_SEND_MSG_1:
+			ret = fi_tsend(ep[0], src_buf[0], len, loc_mr, gni_addr[1],
+					len, dst_buf[0]);
+			cr_assert_eq(ret, FI_SUCCESS);
+
+			s_state = S_STATE_SEND_MSG_1_WAIT_CQ;
+			break;
+		case S_STATE_SEND_MSG_1_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[0], &s_cqe[0], 1);
+			if (ret == 1)
+				s_state = S_STATE_SEND_MSG_2;
+			break;
+		case S_STATE_SEND_MSG_2:
+			ret = fi_tsend(ep[0], src_buf[1], len, loc_mr, gni_addr[1],
+					len + 1, dst_buf[1]);
+			cr_assert_eq(ret, FI_SUCCESS);
+
+			s_state = S_STATE_SEND_MSG_2_WAIT_CQ;
+			break;
+		case S_STATE_SEND_MSG_2_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[0], &s_cqe[1], 1);
+			if (ret == 1)
+				s_state = S_STATE_DONE;
+			break;
+		case S_STATE_DONE:
+			break;
+		default:
+			cr_assert(0 == 1, "unreachable state");
+			break;
+		}
+
+		switch (r_state) {
+		case R_STATE_PEEK_DISCARD:
+			ret = fi_trecvmsg(ep[1], &msg[0], FI_PEEK | FI_DISCARD);
+			if (ret == FI_SUCCESS)
+				r_state = R_STATE_PEEK_DISCARD_WAIT_CQ;
+			break;
+		case R_STATE_PEEK_DISCARD_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[1], &d_peek_cqe, 1);
+			if (ret == 1)
+				r_state = R_STATE_RECV_MSG_2;
+			break;
+		case R_STATE_RECV_MSG_2:
+			ret = fi_trecvmsg(ep[1], &msg[1], 0);
+			cr_assert_eq(ret, FI_SUCCESS);
+
+			r_state = R_STATE_RECV_MSG_2_WAIT_CQ;
+			break;
+		case R_STATE_RECV_MSG_2_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[1], &d_cqe[1], 1);
+			if (ret == 1)
+				r_state = R_STATE_CLAIM;
+			break;
+		case R_STATE_CLAIM:
+			ret = fi_trecvmsg(ep[1], &msg[1], FI_CLAIM);
+			if (ret == FI_SUCCESS)
+				r_state = R_STATE_CLAIM_WAIT_CQ;
+			break;
+		case R_STATE_CLAIM_WAIT_CQ:
+			ret = fi_cq_read(msg_cq[1], &d_cqe[0], 1);
+			if (ret == 1)
+				r_state = R_STATE_DONE;
+			break;
+		case R_STATE_DONE:
+			break;
+		default:
+			cr_assert(0 == 1, "unreachable state");
+			break;
+		}
+
+		gettimeofday(&loop_end, NULL);
+		elapsed = elapsed_seconds(&loop_start, &loop_end);
+	} while (elapsed < max_test_time &&
+			!(s_state == S_STATE_DONE && r_state == R_STATE_DONE));
+
+	cr_assert_eq(s_state, S_STATE_DONE);
+	cr_assert_eq(r_state, R_STATE_DONE);
+
+	/* map src cqes to src parameters */
+	for (i = 0; i < 2; i++)
+		for (j = 0; j < 2; j++)
+			if (s_cqe[i].buf == src_buf[j])
+				src_cqe[j] = &s_cqe[i];
+
 	validate_cqe_contents(&s_cqe[0], src_buf[0], len, len, dst_buf[0]);
 	validate_cqe_contents(&s_cqe[1], src_buf[1], len, len + 1, dst_buf[1]);
-
-	/* we should be discarding the first message */
-	ret = fi_trecvmsg(ep[1], &msg[0], FI_PEEK | FI_DISCARD);
-	cr_assert_eq(ret, FI_SUCCESS);
-
-	/* now lets pull the other unclaimed message */
-	ret = fi_trecvmsg(ep[1], &msg[1], 0);
-	cr_assert_eq(ret, FI_SUCCESS);
-
-	/* we are looking for a single d_cqe and no s_cqe, with no spin after */
-	__progress_cqs(msg_cq, NULL, d_cqe, 0, 2, 1);
-
-	/* ensure the dest cqe has the correct information */
-	validate_cqe_with_message(&d_cqe[0], &msg[0]);
+	validate_cqe_with_message(&d_peek_cqe, &msg[0]);
 	validate_cqe_with_message(&d_cqe[1], &msg[1]);
-	memset(&d_cqe[0], 0x0, sizeof(struct fi_cq_tagged_entry));
 
 	cr_assert(rdm_fi_pdc_check_data_pattern(dst_buf[0], 0, len),
 			"Data mismatch");
@@ -925,16 +1301,22 @@ static void pdc_peek_claim_then_claim_discard(int len)
 	 *     - a peek on the first message should fail after discard
 	 */
 
-	int ret, i;
+	int ret, i, j;
 	struct fi_msg_tagged msg[2];
 	struct iovec iov[2];
 	struct fi_cq_tagged_entry s_cqe[2];
 	struct fi_cq_tagged_entry d_cqe[2];
+	struct fi_cq_tagged_entry *src_cqe[2] = {NULL, NULL};
 	char *src_buf[2] = {source, source + len};
 	char *dst_buf[2] = {target, target + len};
+	struct fi_cq_tagged_entry d_peek_cqe;
+	struct fi_cq_tagged_entry trash;
+	enum send_state s_state = S_STATE_SEND_MSG_1;
+	enum recv_state r_state = R_STATE_PEEK_CLAIM;
+	int elapsed;
 
 	/* initialize the initial data range on the source buffer to have
-	 * different data vaules for one message than for the other
+	 * different data values for one message than for the other
 	 */
 	rdm_fi_pdc_init_data_range(source, 0, len, 0xa5);
 	rdm_fi_pdc_init_data_range(source, len, len, 0x5a);
@@ -956,8 +1338,6 @@ static void pdc_peek_claim_then_claim_discard(int len)
 	/* we are looking for two s_cqes and no d_cqe, and plan to spin for
 	 *   1 second after finding the s_cqe */
 	__progress_cqs(msg_cq, s_cqe, NULL, 2, 0, 1);
-	validate_cqe_contents(&s_cqe[0], src_buf[0], len, len, dst_buf[0]);
-	validate_cqe_contents(&s_cqe[1], src_buf[1], len, len + 1, dst_buf[1]);
 
 	/* we should be claiming the first message */
 	ret = fi_trecvmsg(ep[1], &msg[0], FI_PEEK | FI_CLAIM);
@@ -984,6 +1364,15 @@ static void pdc_peek_claim_then_claim_discard(int len)
 	/* pull the claimed message */
 	ret = fi_trecvmsg(ep[1], &msg[0], FI_CLAIM | FI_DISCARD);
 	cr_assert_eq(ret, FI_SUCCESS);
+
+	/* map src cqes to src parameters */
+	for (i = 0; i < 2; i++)
+		for (j = 0; j < 2; j++)
+			if (s_cqe[i].buf == src_buf[j])
+				src_cqe[j] = &s_cqe[i];
+
+	for (i = 0; i < 2; i++)
+		validate_cqe_contents(src_cqe[i], src_buf[i], len, len + i, dst_buf[i]);
 
 	cr_assert(rdm_fi_pdc_check_data_pattern(dst_buf[0], 0, len),
 			"Data mismatch");

@@ -403,6 +403,7 @@ int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 	_gnix_ref_get(mr->domain); /* take reference on domain */
 
 	/* md.mr_fid */
+	mr->mr_fid.mem_desc = mr;
 	mr->mr_fid.fid.fclass = FI_CLASS_MR;
 	mr->mr_fid.fid.context = context;
 	mr->mr_fid.fid.ops = &fi_gnix_mr_ops;

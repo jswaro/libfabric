@@ -79,7 +79,7 @@ size_t gni_addr[2];
 static struct fid_cq *msg_cq[2];
 static struct fi_cq_attr cq_attr;
 
-#define BUF_SZ (8*1024)
+#define BUF_SZ (64*1024)
 char *target;
 char *source;
 struct fid_mr *rem_mr, *loc_mr;
