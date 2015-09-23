@@ -706,14 +706,37 @@ static int  __gnix_discard_request(struct gnix_fid_ep *ep,
 		size_t len,
 		void *context,
 		uint64_t flags,
-		uint64_t tag)
+		uint64_t tag,
+		uint64_t src_addr)
 {
 	int ret;
+	int rendezvous = req->msg.send_flags & GNIX_MSG_RENDEZVOUS;
 
-	ret = __recv_completion(ep, req, context, flags, len,
-			addr, req->msg.imm, tag);
+	if (rendezvous) {
+		/* return a send completion so the sender knows the request/data
+		 * was sent, but discard the data locally
+		 */
+		req->gnix_ep = ep;
 
-	_gnix_fr_free(ep, req);
+		/* TODO: prevent re-lookup of src_addr */
+		ret = _gnix_ep_get_vc(ep, src_addr, &req->vc);
+		if (ret) {
+			GNIX_INFO(FI_LOG_EP_DATA,
+				  "_gnix_ep_get_vc failed: %dn",
+				  ret);
+			return ret;
+		}
+
+		/* send completion data. */
+		req->send_fn = __gnix_rndzv_req_complete;
+		ret = _gnix_vc_queue_req(req);
+	} else {
+		/* data has already been delivered, so just discard it */
+		ret = __recv_completion(ep, req, context, flags, len,
+				addr, req->msg.imm, tag);
+
+		_gnix_fr_free(ep, req);
+	}
 
 	return ret;
 }
@@ -786,7 +809,8 @@ ssize_t _gnix_recv(struct gnix_fid_ep *ep, uint64_t buf, size_t len,
 					MIN(req->msg.send_len, len),
 					context,
 					req->flags,
-					r_tag);
+					r_tag,
+					src_addr);
 			goto pdc_exit;
 		} else if (r_flags & FI_PEEK) {
 			GNIX_INFO(FI_LOG_EP_DATA, "peeking req=%p\n", req);
