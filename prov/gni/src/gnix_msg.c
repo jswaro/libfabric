@@ -80,17 +80,16 @@ static int __recv_completion(
 		uint64_t data,
 		uint64_t tag)
 {
-	struct gnix_fid_cq *cq;
 	int rc;
 
-	cq = ep->recv_cq;
-	assert(cq != NULL);
-
-	rc = _gnix_cq_add_event(cq, context, flags, len, addr, data, tag);
-	if (rc != FI_SUCCESS)  {
-		GNIX_WARN((FI_LOG_CQ | FI_LOG_EP_DATA),
-				"_gnix_cq_add_event returned %d\n",
-				rc);
+	if (ep->recv_cq) {
+		rc = _gnix_cq_add_event(ep->recv_cq, context, flags, len,
+					addr, data, tag);
+		if (rc != FI_SUCCESS)  {
+			GNIX_WARN((FI_LOG_CQ | FI_LOG_EP_DATA),
+					"_gnix_cq_add_event returned %d\n",
+					rc);
+		}
 	}
 
 	if (ep->recv_cntr) {
@@ -120,23 +119,21 @@ static inline int __gnix_recv_completion(struct gnix_fid_ep *ep,
 static int __gnix_send_completion(struct gnix_fid_ep *ep,
 				  struct gnix_fab_req *req)
 {
-	struct gnix_fid_cq *cq;
 	int rc;
 
-	cq = ep->send_cq;
-	assert(cq != NULL);
-
-	rc = _gnix_cq_add_event(cq,
+	if (ep->send_cq) {
+		rc = _gnix_cq_add_event(ep->send_cq,
 				req->user_context,
 				FI_SEND | FI_MSG,
 				req->msg.send_len,
 				(void *)req->msg.send_addr,
 				req->msg.imm,
 				req->msg.tag);
-	if (rc != FI_SUCCESS)  {
-		GNIX_WARN((FI_LOG_CQ | FI_LOG_EP_DATA),
-				"_gnix_cq_add_event returned %d\n",
-				rc);
+		if (rc != FI_SUCCESS)  {
+			GNIX_WARN((FI_LOG_CQ | FI_LOG_EP_DATA),
+					"_gnix_cq_add_event returned %d\n",
+					rc);
+		}
 	}
 
 	if (ep->send_cntr) {

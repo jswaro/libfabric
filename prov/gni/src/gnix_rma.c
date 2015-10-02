@@ -54,7 +54,7 @@ static int __gnix_rma_txd_complete(void *arg)
 	int rc;
 	struct gnix_fid_cntr *cntr = NULL;
 
-	if (req->flags & FI_COMPLETION) {
+	if ((req->flags & FI_COMPLETION) && ep->send_cq) {
 		rc = _gnix_cq_add_event(ep->send_cq, req->user_context,
 					req->flags, req->rma.len,
 					(void *)req->rma.loc_addr,
@@ -63,7 +63,6 @@ static int __gnix_rma_txd_complete(void *arg)
 			GNIX_WARN(FI_LOG_CQ,
 				  "_gnix_cq_add_event() failed: %d\n", rc);
 		}
-
 	}
 
 	if ((req->type == GNIX_FAB_RQ_RDMA_WRITE) &&
