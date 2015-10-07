@@ -65,9 +65,11 @@ static int gnix_getname(fid_t fid, void *addr, size_t *addrlen)
 	 */
 	if (*addrlen < copy_size) {
 		copy_size = *addrlen;
-		*addrlen = sizeof(struct gnix_ep_name);
 		ret = -FI_ETOOSMALL;
 	}
+
+	/* copy the address length */
+	*addrlen = sizeof(struct gnix_ep_name);
 
 	if (!addr) {
 		if (copy_size >= *addrlen) {
