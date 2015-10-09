@@ -281,7 +281,7 @@ static int gnix_av_lookup(struct fid_av *av, fi_addr_t fi_addr, void *addr,
 	size_t gnix_addr_len = sizeof(struct gnix_address);
 	int rc;
 
-	if (!av || !addr || *addrlen) {
+	if (!av || !addr || !addrlen || *addrlen) {
 		return -FI_EINVAL;
 	}
 
