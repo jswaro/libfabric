@@ -413,6 +413,11 @@ struct gnix_htd_pool {
 	void *sl_ptr;
 };
 
+struct gnix_addr_cache_entry {
+	fi_addr_t addr;
+	struct gnix_vc *vc;
+};
+
 /*
  *   gnix endpoint structure
  *
@@ -466,6 +471,8 @@ struct gnix_fid_ep {
 	bool tx_enabled;
 	bool rx_enabled;
 	bool requires_lock;
+	int last_cached;
+	struct gnix_addr_cache_entry addr_cache[5];
 	int send_selective_completion;
 	int recv_selective_completion;
 	int min_multi_recv;
