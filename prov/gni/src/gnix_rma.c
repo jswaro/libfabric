@@ -740,6 +740,32 @@ int _gnix_rma_post_rdma_chain_req(void *data)
 	return FI_SUCCESS;
 }
 
+static void __dump_vc(struct gnix_vc *vc)
+{
+    GNIX_INFO(FI_LOG_EP_DATA, "vc=%p state=%d ep=%p outstanding_tx_reqs=%d "
+            "peer_addr=%x:%x peer_cm_addr=%x:%x peer_fi_addr=%x vc_id=%d",
+            vc, vc->conn_state, vc->ep, atomic_get(&vc->outstanding_tx_reqs),
+            vc->peer_addr.device_addr, vc->peer_addr.cdm_id,
+            vc->peer_cm_nic_addr.device_addr, vc->peer_cm_nic_addr.cdm_id,
+            vc->peer_fi_addr, vc->vc_id);
+}
+
+
+static void __dump_tx(struct gnix_tx_descriptor *tx)
+{
+    struct gni_post_descriptor *pd = &tx->gni_desc;
+
+    GNIX_INFO(FI_LOG_EP_DATA, "tx=%p tx->id=%d tx->type=%d "
+            "tx->local_addr=%p tx->remote_addr=%p tx->length=%x "
+            "tx->local_mem_hndl=%08llx:%08llx "
+            "tx->remote_mem_hndl=%08llx:%08llx",
+            tx, tx->id, pd->type,
+            pd->local_addr, pd->remote_addr, pd->length,
+            pd->local_mem_hndl.qword1, pd->local_mem_hndl.qword2,
+            pd->remote_mem_hndl.qword1, pd->remote_mem_hndl.qword2);
+}
+
+
 int _gnix_rma_post_req(void *data)
 {
 	struct gnix_fab_req *fab_req = (struct gnix_fab_req *)data;
@@ -824,6 +850,11 @@ int _gnix_rma_post_req(void *data)
 	} else {
 		status = GNI_PostFma(fab_req->vc->gni_ep, &txd->gni_desc);
 	}
+
+    if (status != GNI_RC_SUCCESS) {
+        __dump_vc(fab_req->vc);
+        __dump_tx(txd);
+    }
 
 	COND_RELEASE(nic->requires_lock, &nic->lock);
 
