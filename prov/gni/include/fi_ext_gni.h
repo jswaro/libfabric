@@ -87,6 +87,12 @@ struct fi_gni_ops_domain {
 	int (*flush_cache)(struct fid *fid);
 };
 
+#define FI_GNI_DOMAIN_OPS_2 "domain ops 2"
+struct fi_gni_ops_domain_mr {
+	int (*update_mr)(struct fid_mr *fi_mr);
+};
+
+
 #include <rdma/fi_atomic.h>
 enum gnix_native_amo_types {
 	GNIX_NAMO_AX = 0x20,

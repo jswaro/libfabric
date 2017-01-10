@@ -44,6 +44,8 @@
 #include "gnix_util.h"
 #include "gnix_xpmem.h"
 
+extern fastlock_t _gnix_global_lock;
+
 gni_cq_mode_t gnix_def_gni_cq_modes = GNI_CQ_PHYS_PAGES;
 
 static char *__gnix_mr_type_to_str[GNIX_MR_MAX_TYPE] = {
@@ -507,6 +509,10 @@ static struct fi_gni_ops_domain gnix_ops_domain = {
 	.flush_cache = __gnix_dom_ops_flush_cache,
 };
 
+static struct fi_gni_ops_domain_mr gnix_ops_domain_mr = {
+	.update_mr = _gnix_dom_ops_update_mr,
+};
+
 DIRECT_FN int gnix_domain_bind(struct fid_domain *domain, struct fid *fid,
 			       uint64_t flags)
 {
@@ -521,6 +527,8 @@ gnix_domain_ops_open(struct fid *fid, const char *ops_name, uint64_t flags,
 
 	if (strcmp(ops_name, FI_GNI_DOMAIN_OPS_1) == 0)
 		*ops = &gnix_ops_domain;
+	else if (strcmp(ops_name, FI_GNI_DOMAIN_OPS_2) == 0)
+			*ops = &gnix_ops_domain_mr;
 	else
 		ret = -FI_EINVAL;
 
@@ -540,6 +548,15 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 
 	fabric_priv = container_of(fabric, struct gnix_fid_fabric, fab_fid);
 
+	fastlock_acquire(&_gnix_global_lock);
+	if (_gnix_mr_mode != FI_MR_UNSPEC &&
+				_gnix_mr_mode != info->domain_attr->mr_mode) {
+		GNIX_ERR(FI_LOG_DOMAIN, "GNIX provider cannot support two memory "
+				"models in use at the same time.");
+		ret = -FI_EINVAL;
+		goto err;
+	}
+
 	/*
 	 * check cookie/ptag credentials - for FI_EP_MSG we may be creating a
 	 * domain
@@ -558,6 +575,7 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 	} else {
 		ret = gnixu_get_rdma_credentials(NULL, &ptag, &cookie);
 	}
+
 
 	GNIX_INFO(FI_LOG_DOMAIN,
 		  "gnix rdma credentials returned ptag %u cookie 0x%x\n",
@@ -628,16 +646,22 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 	domain->control_progress = info->domain_attr->control_progress;
 	domain->data_progress = info->domain_attr->data_progress;
 	domain->thread_model = info->domain_attr->threading;
+	_gnix_mr_mode = (info->domain_attr->mr_mode == FI_MR_SCALABLE) ?
+			FI_MR_SCALABLE : FI_MR_BASIC;
+
 	domain->mr_is_init = 0;
 
 	fastlock_init(&domain->cm_nic_lock);
 
 	_gnix_open_cache(domain, GNIX_DEFAULT_CACHE_TYPE);
+	fastlock_release(&_gnix_global_lock);
 
 	*dom = &domain->domain_fid;
+
 	return FI_SUCCESS;
 
 err:
+	fastlock_release(&_gnix_global_lock);
 	if (domain != NULL) {
 		free(domain);
 	}

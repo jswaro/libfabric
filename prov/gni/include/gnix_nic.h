@@ -207,6 +207,7 @@ struct gnix_nic {
 	void *irq_mmap_addr;
 	size_t irq_mmap_len;
 	int requires_lock;
+	int mdd_resources_set;
 };
 
 

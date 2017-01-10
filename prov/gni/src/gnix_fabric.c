@@ -465,7 +465,8 @@ static int _gnix_ep_getinfo(enum fi_ep_type ep_type, uint32_t version,
 				gnix_info->domain_attr->mr_mode = FI_MR_BASIC;
 				break;
 			case FI_MR_SCALABLE:
-				goto err;
+				gnix_info->domain_attr->mr_mode = FI_MR_SCALABLE;
+				break;
 			}
 
 			switch (hints->domain_attr->threading) {

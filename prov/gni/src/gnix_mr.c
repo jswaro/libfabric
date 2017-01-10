@@ -41,7 +41,6 @@
 #include "gnix_mr.h"
 
 /* forward declarations */
-
 static int fi_gnix_mr_close(fid_t fid);
 
 /* global declarations */
@@ -53,6 +52,27 @@ static struct fi_ops fi_gnix_mr_ops = {
 	.control = fi_no_control,
 	.ops_open = fi_no_ops_open,
 };
+
+int _gnix_dom_ops_update_mr(struct fid_mr *fi_mr) {
+	struct gnix_fid_mem_desc *gnix_mr;
+	struct gnix_nic *nic;
+	gni_return_t grc;
+
+	if (_gnix_mr_mode != FI_MR_SCALABLE)
+		return -FI_EOPNOTSUPP;
+
+	gnix_mr = container_of(fi_mr, struct gnix_fid_mem_desc, mr_fid);
+
+	nic = gnix_mr->nic;
+
+	COND_ACQUIRE(nic->requires_lock, &nic->lock);
+	grc = GNI_MemRegister(nic->gni_nic_hndl, gnix_mr->addr, gnix_mr->len,
+			NULL, gnix_mr->flags | GNI_MEM_UPDATE_REGION,
+			gnix_mr->mr_fid.key, &gnix_mr->mem_hndl);
+	COND_RELEASE(nic->requires_lock, &nic->lock);
+
+	return gnixu_to_fi_errno(grc);
+}
 
 /**
  * Sign extends the value passed into up to length parameter
@@ -84,18 +104,23 @@ void _gnix_convert_key_to_mhdl_no_crc(
 	uint64_t va = key->pfn;
 	uint8_t flags = 0;
 
-	va = (uint64_t) __sign_extend(va << GNIX_MR_PAGE_SHIFT,
-				      GNIX_MR_VA_BITS);
-
-	if (key->flags & GNIX_MR_FLAG_READONLY)
-		flags |= GNI_MEMHNDL_ATTR_READONLY;
-
 	GNI_MEMHNDL_INIT((*mhdl));
-	GNI_MEMHNDL_SET_VA((*mhdl), va);
 	GNI_MEMHNDL_SET_MDH((*mhdl), key->mdd);
 	GNI_MEMHNDL_SET_NPAGES((*mhdl), GNI_MEMHNDL_NPGS_MASK);
-	GNI_MEMHNDL_SET_FLAGS((*mhdl), flags);
 	GNI_MEMHNDL_SET_PAGESIZE((*mhdl), GNIX_MR_PAGE_SHIFT);
+
+	if (key->basic) {
+		va = (uint64_t) __sign_extend(va << GNIX_MR_PAGE_SHIFT,
+						  GNIX_MR_VA_BITS);
+
+		if (key->flags & GNIX_MR_FLAG_READONLY)
+			flags |= GNI_MEMHNDL_ATTR_READONLY;
+
+		GNI_MEMHNDL_SET_VA((*mhdl), va);
+		GNI_MEMHNDL_SET_FLAGS((*mhdl), flags);
+	} else {
+		GNI_MEMHNDL_SET_FLAGS((*mhdl), GNI_MEMHNDL_ATTR_VMDH);
+	}
 }
 
 /**
@@ -119,16 +144,20 @@ void _gnix_convert_key_to_mhdl(
  * @param mhdl  gni memory handle
  * @return uint64_t representation of a gnix memory registration key
  */
-uint64_t _gnix_convert_mhdl_to_key(gni_mem_handle_t *mhdl)
+uint64_t _gnix_convert_mhdl_to_key(gni_mem_handle_t *mhdl, enum fi_mr_mode mode)
 {
 	gnix_mr_key_t key = {{{{0}}}};
-	key.pfn = GNI_MEMHNDL_GET_VA((*mhdl)) >> GNIX_MR_PAGE_SHIFT;
-	key.mdd = GNI_MEMHNDL_GET_MDH((*mhdl));
-	//key->format = GNI_MEMHNDL_NEW_FRMT((*mhdl));
-	key.flags = 0;
 
-	if (GNI_MEMHNDL_GET_FLAGS((*mhdl)) & GNI_MEMHNDL_FLAG_READONLY)
-		key.flags |= GNIX_MR_FLAG_READONLY;
+	if (mode != FI_MR_SCALABLE) {
+		key.value = GNI_MEMHNDL_GET_MDH((*mhdl));
+	} else {
+		key.basic = 1;
+		key.flags = 0;
+		key.pfn = GNI_MEMHNDL_GET_VA((*mhdl)) >> GNIX_MR_PAGE_SHIFT;
+
+		if (GNI_MEMHNDL_GET_FLAGS((*mhdl)) & GNI_MEMHNDL_FLAG_READONLY)
+				key.flags |= GNIX_MR_FLAG_READONLY;
+	}
 
 	return key.value;
 }
@@ -229,7 +258,7 @@ DIRECT_FN int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 	mr->mr_fid.fid.ops = &fi_gnix_mr_ops;
 
 	/* setup internal key structure */
-	mr->mr_fid.key = _gnix_convert_mhdl_to_key(&mr->mem_hndl);
+	mr->mr_fid.key = _gnix_convert_mhdl_to_key(&mr->mem_hndl, _gnix_mr_mode);
 
 	_gnix_ref_get(mr->domain);
 
@@ -327,6 +356,14 @@ static inline void *__gnix_generic_register(
         }
 
 	COND_ACQUIRE(nic->requires_lock, &nic->lock);
+	if (!domain->mdd_resources_set || !nic->mdd_resources_set) {
+		grc = GNI_SetMddResources(nic->gni_nic_hndl,
+				GNIX_MAX_VMDH_REG);
+		assert(grc == GNI_RC_SUCCESS);
+
+		nic->mdd_resources_set = domain->mdd_resources_set = 1;
+	}
+
 	grc = GNI_MemRegister(nic->gni_nic_hndl, (uint64_t) address,
 				  length,	dst_cq_hndl, flags,
 				  vmdh_index, &md->mem_hndl);
@@ -338,6 +375,13 @@ static inline void *__gnix_generic_register(
 		_gnix_ref_put(nic);
 
 		return NULL;
+	}
+
+	/* set up registration info relevant to FI_MR_SCALABLE updates */
+	if (_gnix_mr_mode == FI_MR_SCALABLE) {
+		md->addr = (uint64_t) address;
+		md->len = length;
+		md->flags = flags & ~(GNI_MEM_RESERVE_REGION);
 	}
 
 	/* set up the mem desc */
@@ -368,6 +412,11 @@ static void *__gnix_register_region(
 		flags |= GNI_MEM_READWRITE;
 	else
 		flags |= GNI_MEM_READ_ONLY;
+
+	if (_gnix_mr_mode == FI_MR_SCALABLE) {
+		flags |= (GNI_MEM_USE_VMDH | GNI_MEM_UPDATE_REGION); //GNI_MEM_RESERVE_REGION);
+		vmdh_index = fi_reg_context->requested_key;
+	}
 
 	return __gnix_generic_register(domain, md, address, length, dst_cq_hndl,
 			flags, vmdh_index);
@@ -431,18 +480,27 @@ void *__udreg_register(void *addr, uint64_t length, void *context)
 {
 	struct gnix_fid_mem_desc *md;
 	struct gnix_fid_domain *domain;
+	struct udreg_reg_context *reg_ctx = (struct udreg_reg_context *) context;
+	int vmdh_index = -1;
+	int flags = reg_ctx->flags;
+
 
 	domain = (struct gnix_fid_domain *) context;
 
     /* Allocate an udreg info block for this registration. */
     md = calloc(1, sizeof(*md));
     if (!md) {
-	GNIX_WARN(FI_LOG_MR, "failed to allocate memory for registration\n");
-	return NULL;
+		GNIX_WARN(FI_LOG_MR, "failed to allocate memory for registration\n");
+		return NULL;
     }
 
+	if (_gnix_mr_mode == FI_MR_SCALABLE) {
+		flags |= (GNI_MEM_USE_VMDH | GNI_MEM_UPDATE_REGION); //GNI_MEM_RESERVE_REGION);
+		vmdh_index = reg_ctx->vmdh_index;
+	}
+
     return __gnix_generic_register(domain, md, addr, length, NULL,
-		GNI_MEM_READWRITE, -1);
+		flags, vmdh_index);
 }
 
 
@@ -474,7 +532,7 @@ static int __udreg_init(struct gnix_fid_domain *domain)
 		.modes =                UDREG_CC_MODE_USE_LARGE_PAGES,
 		.debug_mode =           0,
 		.debug_rank =           0,
-		.reg_context =          (void *) domain,
+		.reg_context =          (void *) &domain->udreg_reg_ctx,
 		.dreg_context =         (void *) domain,
 		.destructor_context =   (void *) domain,
 		.device_reg_func =      __udreg_register,
@@ -502,6 +560,8 @@ static int __udreg_init(struct gnix_fid_domain *domain)
 				urc);
 	}
 
+	domain->udreg_reg_ctx.dom = domain;
+	fastlock_init(&domain->udreg_lock);
 	domain->mr_is_init = 1;
 
 	return FI_SUCCESS;
@@ -523,7 +583,13 @@ static int __udreg_reg_mr(
 	udreg_entry_t *udreg_entry;
 	struct gnix_fid_mem_desc *md;
 
+	fastlock_acquire(&domain->udreg_lock);
+	domain->udreg_reg_ctx.flags = fi_reg_context->flags;
+	domain->udreg_reg_ctx.vmdh_index = fi_reg_context->requested_key;
+
 	urc = UDREG_Register(domain->udreg_cache, (void *) address, length, &udreg_entry);
+	fastlock_release(&domain->udreg_lock);
+
 	if (unlikely(urc != UDREG_RC_SUCCESS))
 		return -FI_EIO;
 

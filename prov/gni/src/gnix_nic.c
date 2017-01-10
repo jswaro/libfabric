@@ -43,6 +43,7 @@
 #include "gnix_cm_nic.h"
 #include "gnix_vc.h"
 #include "gnix_mbox_allocator.h"
+#include "gnix_mr.h"
 
 /*
  * TODO: make this a domain parameter
@@ -198,6 +199,8 @@ static int __nic_setup_irq_cq(struct gnix_nic *nic)
 	gni_return_t status;
 	int fd = -1;
 	void *mmap_addr;
+	int vmdh_index;
+	int flags = GNI_MEM_READWRITE;
 
 	len = (size_t)sysconf(_SC_PAGESIZE);
 
@@ -210,6 +213,10 @@ static int __nic_setup_irq_cq(struct gnix_nic *nic)
 		goto err;
 	}
 
+	vmdh_index = _gnix_get_next_reserved_key();
+	flags |= (_gnix_mr_mode == FI_MR_SCALABLE) ?
+			(GNI_MEM_USE_VMDH | GNI_MEM_UPDATE_REGION) : 0;
+
 	nic->irq_mmap_addr = mmap_addr;
 	nic->irq_mmap_len = len;
 
@@ -217,10 +224,12 @@ static int __nic_setup_irq_cq(struct gnix_nic *nic)
 				(uint64_t) nic->irq_mmap_addr,
 				len,
 				nic->rx_cq_blk,
-				GNI_MEM_READWRITE,
-				-1,
+				flags,
+				vmdh_index,
 				 &nic->irq_mem_hndl);
 	if (status != GNI_RC_SUCCESS) {
+		_gnix_release_reserved_key(vmdh_index);
+
 		ret = gnixu_to_fi_errno(status);
 		GNIX_WARN(FI_LOG_EP_CTRL,
 			  "GNI_MemRegister returned %s\n",

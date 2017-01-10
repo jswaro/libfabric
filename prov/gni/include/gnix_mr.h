@@ -53,9 +53,13 @@
 #define GNIX_MR_FLAG_BITS 1
 #define GNIX_MR_VA_BITS (GNIX_MR_PFN_BITS + GNIX_MR_PAGE_SHIFT)
 #define GNIX_MR_KEY_BITS (GNIX_MR_PFN_BITS + GNIX_MR_MDD_BITS)
+#define GNIX_MR_TYPE_BITS 1
 #define GNIX_MR_RESERVED_BITS \
-	(GNIX_MR_KEY_BITS + GNIX_MR_FLAG_BITS + GNIX_MR_FMT_BITS)
+	(GNIX_MR_KEY_BITS + GNIX_MR_FLAG_BITS + \
+			GNIX_MR_FMT_BITS + GNIX_MR_TYPE_BITS)
 #define GNIX_MR_PADDING_LENGTH (64 - GNIX_MR_RESERVED_BITS)
+#define GNIX_MAX_VMDH_REG 4096
+#define GNIX_FIRST_RESERVED_REG ((GNIX_MAX_VMDH_REG) >> 1)
 
 enum {
 	GNIX_MR_FLAG_READONLY = 1 << 0
@@ -88,10 +92,15 @@ struct gnix_fid_mem_desc {
 	struct gnix_fid_domain *domain;
 	gni_mem_handle_t mem_hndl;
 	struct gnix_nic *nic;
+	uint64_t addr;
+	uint64_t len;
+	uint64_t flags;
 #ifdef HAVE_UDREG
 	udreg_entry_t *entry;
 #endif
 };
+
+#define GNIX_MR_MAX_REQUESTED_KEY (1 << 63)
 
 /**
  * @brief gnix memory region key
@@ -112,6 +121,7 @@ typedef struct gnix_mr_key {
 			uint64_t format : GNIX_MR_FMT_BITS;
 			uint64_t flags : GNIX_MR_FLAG_BITS;
 			uint64_t padding: GNIX_MR_PADDING_LENGTH;
+			uint64_t basic: GNIX_MR_TYPE_BITS; // 1 if non-vmdh
 		};
 		uint64_t value;
 	};
@@ -160,7 +170,8 @@ void _gnix_convert_key_to_mhdl(
  * @param[in]     mhdl  gni memory handle
  * @return              fi_mr_key to be used by remote EPs.
  */
-uint64_t _gnix_convert_mhdl_to_key(gni_mem_handle_t *mhdl);
+uint64_t _gnix_convert_mhdl_to_key(
+		gni_mem_handle_t *mhdl, enum fi_mr_mode mr_mode);
 
 /* initializes mr cache for a given domain */
 int _gnix_open_cache(struct gnix_fid_domain *domain, int type);
@@ -173,5 +184,29 @@ int _gnix_flush_registration_cache(struct gnix_fid_domain *domain);
 
 
 extern gnix_mr_cache_attr_t _gnix_default_mr_cache_attr;
+extern atomic_t _gnix_next_reserved_mr_key;
+extern enum fi_mr_mode _gnix_mr_mode;
+
+int _gnix_dom_ops_update_mr(struct fid_mr *fi_mr);
+
+__attribute__((unused))
+static inline int _gnix_get_next_reserved_key()
+{
+	int ret;
+
+	ret = (_gnix_mr_mode == FI_MR_SCALABLE) ?
+			atomic_inc(&_gnix_next_reserved_mr_key) : -1;
+#if ENABLE_DEBUG
+	assert(ret < GNIX_MAX_VMDH_REG);
+#endif
+	return ret;
+}
+
+__attribute__((unused))
+static inline void _gnix_release_reserved_key(uint64_t key)
+{
+	//atomic_set(&_gnix_next_reserved_mr_key, key);
+}
+
 
 #endif /* GNIX_MR_H_ */

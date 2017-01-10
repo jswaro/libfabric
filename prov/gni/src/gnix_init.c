@@ -39,6 +39,7 @@
 #include "fi.h"
 #include "prov.h"
 
+#include "gnix_mr.h"
 /**
  * @note  To make sure that static linking will work, there must be at
  *        least one symbol in the file that requires gnix_init.o to have
@@ -99,6 +100,15 @@ atomic_t gnix_debug_next_tid;
 
 uint8_t precomputed_crc_results[256] = { CRCS_256(0) };
 
+atomic_t _gnix_next_reserved_mr_key;
+
+/*
+ *  _gnix_mr_mode: This variable can only truly be set once.
+ *  Read-only after set
+ */
+enum fi_mr_mode _gnix_mr_mode;
+fastlock_t _gnix_global_lock; // lock for locking the provider as a whole
+
 #ifndef NDEBUG
 static inline uint8_t __gni_crc_bits(uint8_t data)
 {
@@ -150,6 +160,10 @@ void _gnix_init(void)
 	static int called=0;
 
 	if (called==0) {
+		fastlock_init(&_gnix_global_lock);
+		_gnix_mr_mode = FI_MR_UNSPEC;
+		atomic_initialize(&_gnix_next_reserved_mr_key,
+				GNIX_FIRST_RESERVED_REG);
 
 		atomic_initialize(&gnix_id_counter, 0);
 		atomic_initialize(&file_id_counter, 0);

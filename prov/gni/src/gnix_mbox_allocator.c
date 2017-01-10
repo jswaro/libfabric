@@ -296,6 +296,8 @@ static int __create_slab(struct gnix_mbox_alloc_handle *handle)
 	char *error;
 	size_t total_size;
 	int ret;
+	int vmdh_index;
+	int flags = GNI_MEM_READWRITE;
 
 	GNIX_TRACE(FI_LOG_EP_CTRL, "\n");
 
@@ -338,11 +340,15 @@ static int __create_slab(struct gnix_mbox_alloc_handle *handle)
 		goto err_alloc_bitmap;
 	}
 
+	vmdh_index = _gnix_get_next_reserved_key();
+	flags |= (_gnix_mr_mode == FI_MR_SCALABLE) ?
+			(GNI_MEM_USE_VMDH | GNI_MEM_UPDATE_REGION) : 0;
+
 	COND_ACQUIRE(handle->nic_handle->requires_lock, &handle->nic_handle->lock);
 	status = GNI_MemRegister(handle->nic_handle->gni_nic_hndl,
 				 (uint64_t) slab->base, total_size,
 				 handle->cq_handle,
-				 GNI_MEM_READWRITE, -1,
+				 flags, vmdh_index,
 				 &slab->memory_handle);
 	COND_RELEASE(handle->nic_handle->requires_lock, &handle->nic_handle->lock);
 	if (status != GNI_RC_SUCCESS) {

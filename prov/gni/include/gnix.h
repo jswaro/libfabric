@@ -366,6 +366,12 @@ struct gnix_fid_fabric {
 extern struct fi_ops_cm gnix_ep_msg_ops_cm;
 extern struct fi_ops_cm gnix_ep_ops_cm;
 
+struct udreg_reg_context {
+	struct gnix_fid_domain *dom;
+	uint64_t flags;
+	uint64_t vmdh_index;
+};
+
 /*
  * a gnix_fid_domain is associated with one or more gnix_nic's.
  * the gni_nics are in turn associated with ep's opened off of the
@@ -402,9 +408,12 @@ struct gnix_fid_domain {
 	 * be changed at this point.
 	 */
 	int mr_is_init;
+	int mdd_resources_set;
 	int udreg_reg_limit;
 #ifdef HAVE_UDREG
 	udreg_cache_handle_t udreg_cache;
+	fastlock_t udreg_lock;
+	struct udreg_reg_context udreg_reg_ctx;
 #endif
 };
 
