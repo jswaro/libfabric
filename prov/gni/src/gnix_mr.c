@@ -109,7 +109,7 @@ void _gnix_convert_key_to_mhdl_no_crc(
 	GNI_MEMHNDL_SET_NPAGES((*mhdl), GNI_MEMHNDL_NPGS_MASK);
 	GNI_MEMHNDL_SET_PAGESIZE((*mhdl), GNIX_MR_PAGE_SHIFT);
 
-	if (key->basic) {
+	if (_gnix_mr_mode == FI_MR_BASIC) {
 		va = (uint64_t) __sign_extend(va << GNIX_MR_PAGE_SHIFT,
 						  GNIX_MR_VA_BITS);
 
@@ -144,16 +144,17 @@ void _gnix_convert_key_to_mhdl(
  * @param mhdl  gni memory handle
  * @return uint64_t representation of a gnix memory registration key
  */
-uint64_t _gnix_convert_mhdl_to_key(gni_mem_handle_t *mhdl, enum fi_mr_mode mode)
+uint64_t _gnix_convert_mhdl_to_key(gni_mem_handle_t *mhdl)
 {
 	gnix_mr_key_t key = {{{{0}}}};
 
-	if (mode != FI_MR_SCALABLE) {
+	if (_gnix_mr_mode == FI_MR_SCALABLE) {
 		key.value = GNI_MEMHNDL_GET_MDH((*mhdl));
 	} else {
-		key.basic = 1;
 		key.flags = 0;
+
 		key.pfn = GNI_MEMHNDL_GET_VA((*mhdl)) >> GNIX_MR_PAGE_SHIFT;
+		key.mdd = GNI_MEMHNDL_GET_MDH((*mhdl));
 
 		if (GNI_MEMHNDL_GET_FLAGS((*mhdl)) & GNI_MEMHNDL_FLAG_READONLY)
 				key.flags |= GNIX_MR_FLAG_READONLY;
@@ -258,7 +259,9 @@ DIRECT_FN int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 	mr->mr_fid.fid.ops = &fi_gnix_mr_ops;
 
 	/* setup internal key structure */
-	mr->mr_fid.key = _gnix_convert_mhdl_to_key(&mr->mem_hndl, _gnix_mr_mode);
+	mr->mr_fid.key = _gnix_convert_mhdl_to_key(&mr->mem_hndl);
+	GNIX_INFO(FI_LOG_DOMAIN, "mr=%p addr=%llx len=%llu key=%llx mode=%d\n", mr, reg_addr, reg_len, mr->mr_fid.key, _gnix_mr_mode);
+
 
 	_gnix_ref_get(mr->domain);
 
@@ -484,8 +487,7 @@ void *__udreg_register(void *addr, uint64_t length, void *context)
 	int vmdh_index = -1;
 	int flags = reg_ctx->flags;
 
-
-	domain = (struct gnix_fid_domain *) context;
+	domain = reg_ctx->dom;
 
     /* Allocate an udreg info block for this registration. */
     md = calloc(1, sizeof(*md));
