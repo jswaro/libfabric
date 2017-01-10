@@ -260,9 +260,6 @@ DIRECT_FN int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 
 	/* setup internal key structure */
 	mr->mr_fid.key = _gnix_convert_mhdl_to_key(&mr->mem_hndl);
-	GNIX_INFO(FI_LOG_DOMAIN, "mr=%p addr=%llx len=%llu key=%llx mode=%d\n", mr, reg_addr, reg_len, mr->mr_fid.key, _gnix_mr_mode);
-
-
 	_gnix_ref_get(mr->domain);
 
 	/* set up mr_o out pointer */

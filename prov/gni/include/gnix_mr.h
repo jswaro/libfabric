@@ -56,8 +56,8 @@
 #define GNIX_MR_RESERVED_BITS \
 	(GNIX_MR_KEY_BITS + GNIX_MR_FLAG_BITS + GNIX_MR_FMT_BITS)
 #define GNIX_MR_PADDING_LENGTH (64 - GNIX_MR_RESERVED_BITS)
-#define GNIX_MAX_VMDH_REG 4096
-#define GNIX_FIRST_RESERVED_REG ((GNIX_MAX_VMDH_REG) >> 1)
+#define GNIX_MAX_VMDH_REG (1 << 10)
+#define GNIX_FIRST_RESERVED_REG ((GNIX_MAX_VMDH_REG) - ((GNIX_MAX_VMDH_REG) >> 2))
 
 enum {
 	GNIX_MR_FLAG_READONLY = 1 << 0
@@ -192,6 +192,9 @@ static inline int _gnix_get_next_reserved_key()
 
 	ret = (_gnix_mr_mode == FI_MR_SCALABLE) ?
 			atomic_inc(&_gnix_next_reserved_mr_key) : -1;
+
+	fprintf(stderr, "returning key=%d\n", ret);
+
 #if ENABLE_DEBUG
 	assert(ret < GNIX_MAX_VMDH_REG);
 #endif

@@ -215,10 +215,18 @@ static int __nic_setup_irq_cq(struct gnix_nic *nic)
 
 	vmdh_index = _gnix_get_next_reserved_key();
 	flags |= (_gnix_mr_mode == FI_MR_SCALABLE) ?
-			(GNI_MEM_USE_VMDH | GNI_MEM_UPDATE_REGION) : 0;
+			(GNI_MEM_USE_VMDH) : 0;
 
 	nic->irq_mmap_addr = mmap_addr;
 	nic->irq_mmap_len = len;
+
+	if (_gnix_mr_mode == FI_MR_SCALABLE && !nic->mdd_resources_set) {
+		status = GNI_SetMddResources(nic->gni_nic_hndl, 
+			GNIX_MAX_VMDH_REG);
+		assert(status == GNI_RC_SUCCESS);
+
+		nic->mdd_resources_set = 1;
+	}
 
 	status = GNI_MemRegister(nic->gni_nic_hndl,
 				(uint64_t) nic->irq_mmap_addr,

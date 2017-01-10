@@ -342,9 +342,18 @@ static int __create_slab(struct gnix_mbox_alloc_handle *handle)
 
 	vmdh_index = _gnix_get_next_reserved_key();
 	flags |= (_gnix_mr_mode == FI_MR_SCALABLE) ?
-			(GNI_MEM_USE_VMDH | GNI_MEM_UPDATE_REGION) : 0;
+			(GNI_MEM_USE_VMDH) : 0;
 
 	COND_ACQUIRE(handle->nic_handle->requires_lock, &handle->nic_handle->lock);
+	if (!handle->nic_handle->mdd_resources_set && 
+		_gnix_mr_mode == FI_MR_SCALABLE) {
+		status = GNI_SetMddResources(handle->nic_handle->gni_nic_hndl, 
+			GNIX_MAX_VMDH_REG);
+		assert(status == GNI_RC_SUCCESS);
+	
+		handle->nic_handle->mdd_resources_set = 1;
+	}
+
 	status = GNI_MemRegister(handle->nic_handle->gni_nic_hndl,
 				 (uint64_t) slab->base, total_size,
 				 handle->cq_handle,
@@ -365,6 +374,7 @@ static int __create_slab(struct gnix_mbox_alloc_handle *handle)
 	handle->last_offset += total_size;
 
 	return ret;
+err_set_resources:
 
 err_memregister:
 	_gnix_free_bitmap(slab->used);

@@ -169,6 +169,7 @@ void api_cntr_setup(void)
 
 	for (i = 0; i < NUMEPS; i++) {
 		ret = fi_domain(fab, fi[i], dom + i, NULL);
+		fprintf(stderr, "ret=%d\n", ret);
 		cr_assert(!ret, "fi_domain");
 
 		ret = fi_open_ops(&dom[i]->fid, FI_GNI_DOMAIN_OPS_1,
