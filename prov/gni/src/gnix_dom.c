@@ -534,13 +534,6 @@ gnix_domain_ops_open(struct fid *fid, const char *ops_name, uint64_t flags,
 
 	return ret;
 }
-#define HERE \
-	do { \
-		if (ret) { \
-			fprintf(stderr, "here, ret=%d at line %d\n", ret, __LINE__); \
-			fflush(stderr); \
-		} \
-	} while (0) 
 
 DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 			       struct fid_domain **dom, void *context)
@@ -555,15 +548,22 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 
 	fabric_priv = container_of(fabric, struct gnix_fid_fabric, fab_fid);
 
+	// force fi_mr_scalable for testing
+	info->domain_attr->mr_mode = FI_MR_SCALABLE;
+
 	fastlock_acquire(&_gnix_global_lock);
 	if (_gnix_mr_mode != FI_MR_UNSPEC &&
-				_gnix_mr_mode != info->domain_attr->mr_mode) {
-		GNIX_ERR(FI_LOG_DOMAIN, "GNIX provider cannot support two memory "
-				"models in use at the same time.");
-		HERE;
+				_gnix_mr_mode != info->domain_attr->mr_mode &&
+				info->domain_attr->mr_mode != FI_MR_UNSPEC) {
+		GNIX_INFO(FI_LOG_DOMAIN, "GNIX provider cannot support two memory "
+				"models in use at the same time. current=%d requested=%d\n", _gnix_mr_mode, info->domain_attr->mr_mode);
 		ret = -FI_EINVAL;
 		goto err;
 	}
+
+	if (_gnix_mr_mode != info->domain_attr->mr_mode &&
+		info->domain_attr->mr_mode == FI_MR_UNSPEC)
+		info->domain_attr->mr_mode = _gnix_mr_mode;
 
 	/*
 	 * check cookie/ptag credentials - for FI_EP_MSG we may be creating a
@@ -574,7 +574,6 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 	if (info->dest_addr) {
 		ret =
 		    gnixu_get_rdma_credentials(info->dest_addr, &ptag, &cookie);
-		HERE;
 		if (ret) {
 			GNIX_WARN(FI_LOG_DOMAIN,
 				   "gnixu_get_rdma_credentials returned ptag %u cookie 0x%x\n",
@@ -583,7 +582,6 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 		}
 	} else {
 		ret = gnixu_get_rdma_credentials(NULL, &ptag, &cookie);
-		HERE;
 	}
 
 
@@ -593,7 +591,6 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 
 	domain = calloc(1, sizeof *domain);
 	if (domain == NULL) {
-		HERE;
 		ret = -FI_ENOMEM;
 		goto err;
 	}
@@ -604,7 +601,6 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 	domain->mr_cache_attr.destruct_context = NULL;
 
 	ret = _gnix_notifier_open(&domain->mr_cache_attr.notifier);
-	HERE;
 	if (ret != FI_SUCCESS)
 		goto err;
 
@@ -660,7 +656,6 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 	domain->thread_model = info->domain_attr->threading;
 	_gnix_mr_mode = (info->domain_attr->mr_mode == FI_MR_SCALABLE) ?
 			FI_MR_SCALABLE : FI_MR_BASIC;
-	_gnix_mr_mode = FI_MR_SCALABLE;
 
 	domain->mr_is_init = 0;
 
@@ -671,12 +666,10 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 
 	*dom = &domain->domain_fid;
 
-	HERE;
 	return FI_SUCCESS;
 
 err:
 	fastlock_release(&_gnix_global_lock);
-	HERE;
 	if (domain != NULL) {
 		free(domain);
 	}

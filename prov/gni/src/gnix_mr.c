@@ -356,7 +356,7 @@ static inline void *__gnix_generic_register(
         }
 
 	COND_ACQUIRE(nic->requires_lock, &nic->lock);
-	if (!domain->mdd_resources_set || !nic->mdd_resources_set) {
+	if (!nic->mdd_resources_set && _gnix_mr_mode == FI_MR_SCALABLE) {
 		grc = GNI_SetMddResources(nic->gni_nic_hndl,
 				GNIX_MAX_VMDH_REG);
 		assert(grc == GNI_RC_SUCCESS);
