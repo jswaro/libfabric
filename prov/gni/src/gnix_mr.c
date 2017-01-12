@@ -376,7 +376,8 @@ DIRECT_FN int gnix_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
 	 *   Additionally, check for invalid pointers, bad access flags and the
 	 *   correct fclass on associated fid
 	 */
-	if (attr->offset || !mr || !attr->access ||
+	if (attr->offset || !mr ||
+			!attr->mr_iov || !attr->iov_count || !attr->access ||
 			(attr->access & ~(FI_READ | FI_WRITE | FI_RECV |
 					FI_SEND | FI_REMOTE_READ | FI_REMOTE_WRITE)) ||
 			(fid->fclass != FI_CLASS_DOMAIN))

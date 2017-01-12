@@ -318,6 +318,63 @@ Test(mr_internal_bare, basic_init)
 	cr_assert(ret == FI_SUCCESS);
 }
 
+/* Test simple init, register and deregister */
+Test(mr_internal_bare, basic_init_regv)
+{
+	int ret;
+	void *buffer;
+	struct iovec *iov;
+	int i;
+	int num_iovs = 4;
+	int huge_buf_size = 1 << 21;
+
+	buffer = calloc(huge_buf_size, sizeof(char));
+	cr_assert(buffer);
+
+	iov = calloc(num_iovs, sizeof(*iov));
+	cr_assert(iov);
+
+	// register 8k regions at discontiguous intervals
+	for (i = 0; i < num_iovs; i++) {
+		iov[i].iov_base = buffer + (void *) (i  * (1 << 16));
+		iov[i].iov_base = (1 << 13);
+	}
+
+	ret = fi_mr_regv(dom, iov, num_iovs, default_access,
+			default_offset, default_req_key,
+			default_flags, &mr, NULL);
+	cr_assert(ret == FI_SUCCESS);
+
+	ret = fi_close(&mr->fid);
+	cr_assert(ret == FI_SUCCESS);
+}
+
+/* Test simple init, register and deregister */
+Test(mr_internal_bare, basic_init_regattr)
+{
+	int ret;
+	void *buffer;
+	struct fi_mr_attr attr = {
+			.iov_count = 1,
+			.access = default_access,
+			.offset = default_offset,
+			.requested_key = default_req_key,
+			.context = context,
+	};
+	struct iovec iov = {
+			.iov_base = buf,
+			.iov_len = buf_len
+	};
+
+	attr.mr_iov = &iov;
+
+	ret = fi_mr_regattr(dom, &attr, default_flags, &mr);
+	cr_assert(ret == FI_SUCCESS);
+
+	ret = fi_close(&mr->fid);
+	cr_assert(ret == FI_SUCCESS);
+}
+
 /* Test simple init, register and deregister, no NIC present */
 Test(mr_internal_bare, bug_1086)
 {
