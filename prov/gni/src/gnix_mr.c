@@ -40,6 +40,11 @@
 #include "gnix_util.h"
 #include "gnix_mr.h"
 
+#define REG_ADDR(addr) (((uint64_t) (addr)) & ~((1 << GNIX_MR_PAGE_SHIFT) - 1))
+#define REG_LEN(addr, length) \
+	(__calculate_length((uint64_t) (addr), \
+			(length), 1 << GNIX_MR_PAGE_SHIFT))
+
 /* forward declarations */
 
 static int fi_gnix_mr_close(fid_t fid);
@@ -159,7 +164,134 @@ static inline uint64_t __calculate_length(
 	return pages * pagesize;
 }
 
-DIRECT_FN int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
+static inline int __verify_mr_iovec(const struct iovec *iov, size_t count)
+{
+	size_t i;
+
+	for (i = 0; i < count; i ++)
+		if ((REG_ADDR(iov[i].iov_base) != (uint64_t) iov[i].iov_base) ||
+				(REG_LEN(iov[i].iov_base, iov[i].iov_len) != iov[i].iov_len))
+			return 0;
+
+	return 1;
+}
+
+static inline struct gnix_nic *__mr_select_nic(struct gnix_fid_domain *domain)
+{
+	struct gnix_nic *nic = NULL;
+	int rc;
+
+	pthread_mutex_lock(&gnix_nic_list_lock);
+
+	/* If the nic list is empty, create a nic */
+	if (unlikely((dlist_empty(&gnix_nic_list_ptag[domain->ptag])))) {
+		/* release the lock because we are not checking the list after
+			this point. Additionally, gnix_nic_alloc takes the
+			lock to add the nic. */
+		pthread_mutex_unlock(&gnix_nic_list_lock);
+
+		rc = gnix_nic_alloc(domain, NULL, &nic);
+		if (rc) {
+			GNIX_INFO(FI_LOG_MR,
+				  "could not allocate nic to do mr_reg,"
+				  " ret=%i\n", rc);
+			return NULL;
+		}
+	} else {
+		nic = dlist_first_entry(&gnix_nic_list_ptag[domain->ptag],
+			struct gnix_nic, ptag_nic_list);
+		if (unlikely(nic == NULL)) {
+			GNIX_ERR(FI_LOG_MR, "Failed to find nic on "
+				"ptag list\n");
+			pthread_mutex_unlock(&gnix_nic_list_lock);
+			return NULL;
+		}
+		_gnix_ref_get(nic);
+		pthread_mutex_unlock(&gnix_nic_list_lock);
+	}
+
+	return nic;
+}
+
+int __gnix_mr_reg_segments(struct fid *fid,
+		const struct iovec *iov, size_t count,
+		uint64_t access, uint64_t offset,
+		uint64_t requested_key, uint64_t flags,
+		struct fid_mr **mr_o, void *context)
+{
+	struct gnix_fid_mem_desc *mr = NULL;
+	struct gnix_fid_domain *domain;
+	struct gnix_nic *nic = NULL;
+	int rc;
+	struct gni_mem_segment *segs;
+	int i;
+	gni_return_t grc;
+	int vmdh_index = -1;
+	gni_cq_handle_t dst_cq_hndl = NULL;
+
+	GNIX_TRACE(FI_LOG_MR, "\n");
+
+	/* GNI_MemRegisterSegments restriction on
+	 *     registration alignment and length
+	 */
+	if (!__verify_mr_iovec(iov, count))
+		return -FI_EINVAL;
+
+	domain = container_of(fid, struct gnix_fid_domain, domain_fid.fid);
+
+	nic = __mr_select_nic(domain);
+	if (!nic)
+		return -FI_ENOSPC;
+
+	segs = calloc(sizeof(*segs), count);
+	if (!segs)
+		return -FI_ENOMEM;
+
+	for (i = 0; i < count; i++) {
+		segs[i].address = (uint64_t) iov[i].iov_base;
+		segs[i].length = (uint64_t) iov[i].iov_len;
+	}
+
+	COND_ACQUIRE(nic->requires_lock, &nic->lock);
+	grc = GNI_MemRegisterSegments(nic->gni_nic_hndl, segs, count,
+			dst_cq_hndl, flags, vmdh_index, &mr->mem_hndl);
+	COND_RELEASE(nic->requires_lock, &nic->lock);
+
+	free(segs);
+
+	if (unlikely(grc != GNI_RC_SUCCESS)) {
+		GNIX_INFO(FI_LOG_MR, "failed to register memory segments with uGNI, "
+			  "ret=%s\n", gni_err_str[grc]);
+		_gnix_ref_put(nic);
+
+		// TODO: use gni to fi conversion function
+		return -FI_EINVAL;
+	}
+
+	/* check retcode */
+	if (unlikely(rc != FI_SUCCESS))
+		return rc;
+
+	/* set up the mem desc */
+	mr->nic = nic;
+	mr->domain = domain;
+
+	/* mr.mr_fid */
+	mr->mr_fid.mem_desc = mr;
+	mr->mr_fid.fid.fclass = FI_CLASS_MR;
+	mr->mr_fid.fid.context = context;
+	mr->mr_fid.fid.ops = &fi_gnix_mr_ops;
+
+	mr->mr_fid.key = _gnix_convert_mhdl_to_key(&mr->mem_hndl);
+
+	_gnix_ref_get(mr->domain);
+
+	/* set up mr_o out pointer */
+	*mr_o = &mr->mr_fid;
+	return FI_SUCCESS;
+}
+
+int __gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 			  uint64_t access, uint64_t offset,
 			  uint64_t requested_key, uint64_t flags,
 			  struct fid_mr **mr_o, void *context)
@@ -178,27 +310,13 @@ DIRECT_FN int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 
 	GNIX_TRACE(FI_LOG_MR, "\n");
 
-	/* Flags are reserved for future use and must be 0. */
-	if (unlikely(flags))
-		return -FI_EBADFLAGS;
-
-	/* The offset parameter is reserved for future use and must be 0.
-	 *   Additionally, check for invalid pointers, bad access flags and the
-	 *   correct fclass on associated fid
-	 */
-	if (offset || !buf || !mr_o || !access ||
-			(access & ~(FI_READ | FI_WRITE | FI_RECV | FI_SEND |
-						FI_REMOTE_READ |
-						FI_REMOTE_WRITE)) ||
-			(fid->fclass != FI_CLASS_DOMAIN))
-
+	if (!buf) 
 		return -FI_EINVAL;
 
 	domain = container_of(fid, struct gnix_fid_domain, domain_fid.fid);
 
-	reg_addr = ((uint64_t) buf) & ~((1 << GNIX_MR_PAGE_SHIFT) - 1);
-	reg_len = __calculate_length((uint64_t) buf, len,
-			1 << GNIX_MR_PAGE_SHIFT);
+	reg_addr = REG_ADDR(buf);
+	reg_len = REG_LEN(buf, len);
 
 	/* call cache register op to retrieve the right entry */
 	fastlock_acquire(&domain->mr_cache_lock);
@@ -240,6 +358,90 @@ DIRECT_FN int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 err:
 	return rc;
 }
+
+
+DIRECT_FN int gnix_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
+		uint64_t flags, struct fid_mr **mr)
+{
+	int ret;
+
+	if (!attr)
+		return -FI_EINVAL;
+
+	/* Flags are reserved for future use and must be 0. */
+	if (unlikely(flags))
+		return -FI_EBADFLAGS;
+
+	/* The offset parameter is reserved for future use and must be 0.
+	 *   Additionally, check for invalid pointers, bad access flags and the
+	 *   correct fclass on associated fid
+	 */
+	if (attr->offset || !mr || !attr->access ||
+			(attr->access & ~(FI_READ | FI_WRITE | FI_RECV |
+					FI_SEND | FI_REMOTE_READ | FI_REMOTE_WRITE)) ||
+			(fid->fclass != FI_CLASS_DOMAIN))
+
+		return -FI_EINVAL;
+
+	if (attr->iov_count == 1) {
+		ret = __gnix_mr_reg(fid,
+				attr->mr_iov[0].iov_base, attr->mr_iov[0].iov_len,
+				attr->access, attr->offset,
+				attr->requested_key, flags, mr, attr->context);
+	} else
+		ret = __gnix_mr_reg_segments(fid,
+				attr->mr_iov, attr->iov_count,
+				attr->access, attr->offset,
+				attr->requested_key, flags, mr, attr->context);
+
+	if (ret)
+		GNIX_WARN(FI_LOG_DOMAIN, "ret=%d\n", ret);
+
+	return ret;
+}
+
+DIRECT_FN int gnix_mr_regv(struct fid *fid, const struct iovec *iov,
+                size_t count, uint64_t access,
+                uint64_t offset, uint64_t requested_key,
+                uint64_t flags, struct fid_mr **mr, void *context)
+{
+        struct fi_mr_attr attr =
+        {
+                .mr_iov = iov,
+                .iov_count = count,
+                .access = access,
+                .offset = offset,
+                .requested_key = requested_key,
+                .context = context,
+        };
+
+        return gnix_mr_regattr(fid, &attr, flags, mr);
+}
+
+DIRECT_FN int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
+                          uint64_t access, uint64_t offset,
+                          uint64_t requested_key, uint64_t flags,
+                          struct fid_mr **mr_o, void *context)
+{
+        struct fi_mr_attr attr =
+        {
+                .iov_count = 1,
+                .access = access,
+                .offset = offset,
+                .requested_key = requested_key,
+                .context = context,
+        };
+        const struct iovec mr_iov =
+        {
+                        .iov_base = buf,
+                        .iov_len = len,
+        };
+
+        attr.mr_iov = &mr_iov;
+
+        return gnix_mr_regattr(fid, &attr, flags, mr_o);
+}
+
 
 /**
  * Closes and deallocates a libfabric memory registration in the internal cache
@@ -297,34 +499,9 @@ static inline void *__gnix_generic_register(
 	gni_return_t grc = GNI_RC_SUCCESS;
 	int rc;
 
-	pthread_mutex_lock(&gnix_nic_list_lock);
-
-	/* If the nic list is empty, create a nic */
-	if (unlikely((dlist_empty(&gnix_nic_list_ptag[domain->ptag])))) {
-		/* release the lock because we are not checking the list after
-			this point. Additionally, gnix_nic_alloc takes the 
-			lock to add the nic. */
-		pthread_mutex_unlock(&gnix_nic_list_lock);
-
-		rc = gnix_nic_alloc(domain, NULL, &nic);
-		if (rc) {
-			GNIX_INFO(FI_LOG_MR,
-				  "could not allocate nic to do mr_reg,"
-				  " ret=%i\n", rc);
-			return NULL;
-		}
-	} else {
-		nic = dlist_first_entry(&gnix_nic_list_ptag[domain->ptag], 
-			struct gnix_nic, ptag_nic_list);
-		if (unlikely(nic == NULL)) {
-			GNIX_ERR(FI_LOG_MR, "Failed to find nic on "
-				"ptag list\n");
-			pthread_mutex_unlock(&gnix_nic_list_lock);
-			return NULL;
-		}
-		_gnix_ref_get(nic);	
-		pthread_mutex_unlock(&gnix_nic_list_lock);
-        }
+	nic = __mr_select_nic(domain);
+	if (!nic)
+		return NULL;
 
 	COND_ACQUIRE(nic->requires_lock, &nic->lock);
 	grc = GNI_MemRegister(nic->gni_nic_hndl, (uint64_t) address,

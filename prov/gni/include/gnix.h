@@ -1126,6 +1126,14 @@ int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 		uint64_t access, uint64_t offset, uint64_t requested_key,
 		uint64_t flags, struct fid_mr **mr_o, void *context);
 
+int gnix_mr_regv(struct fid *fid, const struct iovec *iov,
+	size_t count, uint64_t access,
+	uint64_t offset, uint64_t requested_key,
+	uint64_t flags, struct fid_mr **mr, void *context);
+
+int gnix_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
+	uint64_t flags, struct fid_mr **mr);
+
 int gnix_cntr_open(struct fid_domain *domain, struct fi_cntr_attr *attr,
 		 struct fid_cntr **cntr, void *context);
 

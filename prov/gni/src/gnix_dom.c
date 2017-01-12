@@ -673,8 +673,8 @@ static struct fi_ops gnix_domain_fi_ops = {
 static struct fi_ops_mr gnix_domain_mr_ops = {
 	.size = sizeof(struct fi_ops_mr),
 	.reg = gnix_mr_reg,
-	.regv = fi_no_mr_regv,
-	.regattr = fi_no_mr_regattr
+	.regv = gnix_mr_regv,
+	.regattr = gnix_mr_regattr
 };
 
 static struct fi_ops_domain gnix_domain_ops = {
