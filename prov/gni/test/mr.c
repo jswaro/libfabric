@@ -336,8 +336,11 @@ Test(mr_internal_bare, basic_init_regv)
 
 	// register 8k regions at discontiguous intervals
 	for (i = 0; i < num_iovs; i++) {
-		iov[i].iov_base = buffer + (void *) (i  * (1 << 16));
-		iov[i].iov_base = (1 << 13);
+		iov[i].iov_base = (void *) ((uint64_t) buffer + (i  * (1 << 16)));
+		iov[i].iov_base = (void *) ((uint64_t) iov[i].iov_base + (~((uint64_t) iov[i].iov_base) & 0xFFF) + 1);
+		iov[i].iov_len = (1 << 13);
+
+		fprintf(stderr, "%p %d\n", iov[i].iov_base, iov[i].iov_len);
 	}
 
 	ret = fi_mr_regv(dom, iov, num_iovs, default_access,
@@ -359,7 +362,7 @@ Test(mr_internal_bare, basic_init_regattr)
 			.access = default_access,
 			.offset = default_offset,
 			.requested_key = default_req_key,
-			.context = context,
+			.context = NULL,
 	};
 	struct iovec iov = {
 			.iov_base = buf,

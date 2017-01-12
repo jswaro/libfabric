@@ -48,6 +48,7 @@
 /* forward declarations */
 
 static int fi_gnix_mr_close(fid_t fid);
+static int fi_gnix_mr_regv_close(fid_t fid);
 
 /* global declarations */
 /* memory registration operations */
@@ -57,6 +58,14 @@ static struct fi_ops fi_gnix_mr_ops = {
 	.bind = fi_no_bind,
 	.control = fi_no_control,
 	.ops_open = fi_no_ops_open,
+};
+
+static struct fi_ops fi_gnix_mr_regv_ops = {
+	.size = sizeof(struct fi_ops),
+	.close = fi_gnix_mr_regv_close,
+	.bind = fi_no_bind, 
+	.control = fi_no_control, 
+	.ops_open = fi_no_ops_open, 
 };
 
 /**
@@ -168,10 +177,14 @@ static inline int __verify_mr_iovec(const struct iovec *iov, size_t count)
 {
 	size_t i;
 
-	for (i = 0; i < count; i ++)
+	for (i = 0; i < count; i ++) {
+		if (!iov[i].iov_base || !iov[i].iov_len)
+			return 0;
+
 		if ((REG_ADDR(iov[i].iov_base) != (uint64_t) iov[i].iov_base) ||
 				(REG_LEN(iov[i].iov_base, iov[i].iov_len) != iov[i].iov_len))
 			return 0;
+	}
 
 	return 1;
 }
@@ -239,13 +252,19 @@ int __gnix_mr_reg_segments(struct fid *fid,
 
 	domain = container_of(fid, struct gnix_fid_domain, domain_fid.fid);
 
-	nic = __mr_select_nic(domain);
-	if (!nic)
-		return -FI_ENOSPC;
-
+	rc = -FI_ENOMEM;
 	segs = calloc(sizeof(*segs), count);
 	if (!segs)
 		return -FI_ENOMEM;
+
+	mr = calloc(1, sizeof(*mr));
+	if (!mr)
+		goto err_alloc_mr;
+
+	rc = -FI_ENOMEM;
+	nic = __mr_select_nic(domain);
+        if (!nic) 
+		goto err_select_nic;
 
 	for (i = 0; i < count; i++) {
 		segs[i].address = (uint64_t) iov[i].iov_base;
@@ -257,20 +276,12 @@ int __gnix_mr_reg_segments(struct fid *fid,
 			dst_cq_hndl, flags, vmdh_index, &mr->mem_hndl);
 	COND_RELEASE(nic->requires_lock, &nic->lock);
 
-	free(segs);
-
+	rc = -FI_EINVAL;
 	if (unlikely(grc != GNI_RC_SUCCESS)) {
 		GNIX_INFO(FI_LOG_MR, "failed to register memory segments with uGNI, "
 			  "ret=%s\n", gni_err_str[grc]);
-		_gnix_ref_put(nic);
-
-		// TODO: use gni to fi conversion function
-		return -FI_EINVAL;
+		goto err_regv;
 	}
-
-	/* check retcode */
-	if (unlikely(rc != FI_SUCCESS))
-		return rc;
 
 	/* set up the mem desc */
 	mr->nic = nic;
@@ -280,15 +291,24 @@ int __gnix_mr_reg_segments(struct fid *fid,
 	mr->mr_fid.mem_desc = mr;
 	mr->mr_fid.fid.fclass = FI_CLASS_MR;
 	mr->mr_fid.fid.context = context;
-	mr->mr_fid.fid.ops = &fi_gnix_mr_ops;
+	mr->mr_fid.fid.ops = &fi_gnix_mr_regv_ops;
 
 	mr->mr_fid.key = _gnix_convert_mhdl_to_key(&mr->mem_hndl);
 
 	_gnix_ref_get(mr->domain);
+	free(segs);
 
 	/* set up mr_o out pointer */
 	*mr_o = &mr->mr_fid;
 	return FI_SUCCESS;
+
+err_regv:
+	_gnix_ref_put(nic);
+err_select_nic:
+	free(mr);
+err_alloc_mr:
+	free(segs);
+	return rc;
 }
 
 int __gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
@@ -487,6 +507,41 @@ static int fi_gnix_mr_close(fid_t fid)
 	return ret;
 }
 
+static int fi_gnix_mr_regv_close(fid_t fid)
+{
+        struct gnix_fid_mem_desc *mr;
+        gni_return_t ret;
+        struct gnix_fid_domain *domain;
+	struct gnix_nic *nic;
+
+        GNIX_TRACE(FI_LOG_MR, "\n");
+
+        if (unlikely(fid->fclass != FI_CLASS_MR))
+                return -FI_EINVAL;
+
+        mr = container_of(fid, struct gnix_fid_mem_desc, mr_fid.fid);
+
+        domain = mr->domain;
+	nic = mr->nic;
+
+	COND_ACQUIRE(nic->requires_lock, &nic->lock);
+	ret = GNI_MemDeregister(nic->gni_nic_hndl, &mr->mem_hndl);
+	COND_RELEASE(nic->requires_lock, &nic->lock);
+
+        /* check retcode */
+        if (likely(ret == FI_SUCCESS)) {
+                /* release references to the domain and nic */
+                _gnix_ref_put(domain);
+		_gnix_ref_put(nic);
+        } else {
+                GNIX_INFO(FI_LOG_MR, "failed to deregister memory, "
+                          "ret=%i\n", ret);
+        }
+
+        return ret;
+}
+
+
 static inline void *__gnix_generic_register(
 		struct gnix_fid_domain *domain,
 		struct gnix_fid_mem_desc *md,
@@ -498,7 +553,6 @@ static inline void *__gnix_generic_register(
 {
 	struct gnix_nic *nic;
 	gni_return_t grc = GNI_RC_SUCCESS;
-	int rc;
 
 	nic = __mr_select_nic(domain);
 	if (!nic)
