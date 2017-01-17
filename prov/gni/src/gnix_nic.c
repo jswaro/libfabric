@@ -201,6 +201,7 @@ static int __nic_setup_irq_cq(struct gnix_nic *nic)
 	void *mmap_addr;
 	int vmdh_index;
 	int flags = GNI_MEM_READWRITE;
+	enum fi_mr_mode mr_mode;
 
 	len = (size_t)sysconf(_SC_PAGESIZE);
 

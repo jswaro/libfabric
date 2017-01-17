@@ -58,12 +58,12 @@ int _gnix_dom_ops_update_mr(struct fid_mr *fi_mr) {
 	struct gnix_nic *nic;
 	gni_return_t grc;
 
-	if (_gnix_mr_mode != FI_MR_SCALABLE)
-		return -FI_EOPNOTSUPP;
-
 	gnix_mr = container_of(fi_mr, struct gnix_fid_mem_desc, mr_fid);
 
 	nic = gnix_mr->nic;
+
+	if (_gnix_lookup_ptag_mr_mode(nic->ptag) != FI_MR_SCALABLE)
+		return -FI_EOPNOTSUPP;
 
 	COND_ACQUIRE(nic->requires_lock, &nic->lock);
 	grc = GNI_MemRegister(nic->gni_nic_hndl, gnix_mr->addr, gnix_mr->len,
@@ -109,7 +109,7 @@ void _gnix_convert_key_to_mhdl_no_crc(
 	GNI_MEMHNDL_SET_NPAGES((*mhdl), GNI_MEMHNDL_NPGS_MASK);
 	GNI_MEMHNDL_SET_PAGESIZE((*mhdl), GNIX_MR_PAGE_SHIFT);
 
-	if (_gnix_mr_mode == FI_MR_BASIC) {
+	if (key->flags & GNIX_MR_BASIC_REG) {
 		va = (uint64_t) __sign_extend(va << GNIX_MR_PAGE_SHIFT,
 						  GNIX_MR_VA_BITS);
 
@@ -148,10 +148,11 @@ uint64_t _gnix_convert_mhdl_to_key(gni_mem_handle_t *mhdl)
 {
 	gnix_mr_key_t key = {{{{0}}}};
 
-	if (_gnix_mr_mode == FI_MR_SCALABLE) {
+	// VMDH handles do not have a virtual address set
+	if (GNI_MEMHNDL_GET_VA((*mhdl)) == 0) {
 		key.value = GNI_MEMHNDL_GET_MDH((*mhdl));
 	} else {
-		key.flags = 0;
+		key.flags = GNIX_MR_BASIC_REG;
 
 		key.pfn = GNI_MEMHNDL_GET_VA((*mhdl)) >> GNIX_MR_PAGE_SHIFT;
 		key.mdd = GNI_MEMHNDL_GET_MDH((*mhdl));
@@ -378,7 +379,7 @@ static inline void *__gnix_generic_register(
 	}
 
 	/* set up registration info relevant to FI_MR_SCALABLE updates */
-	if (_gnix_mr_mode == FI_MR_SCALABLE) {
+	if (domain->mr_mode == FI_MR_SCALABLE) {
 		md->addr = (uint64_t) address;
 		md->len = length;
 		md->flags = flags & ~(GNI_MEM_RESERVE_REGION);
@@ -413,7 +414,7 @@ static void *__gnix_register_region(
 	else
 		flags |= GNI_MEM_READ_ONLY;
 
-	if (_gnix_mr_mode == FI_MR_SCALABLE) {
+	if (domain->mr_mode == FI_MR_SCALABLE) {
 		flags |= (GNI_MEM_USE_VMDH | GNI_MEM_UPDATE_REGION); //GNI_MEM_RESERVE_REGION);
 		vmdh_index = fi_reg_context->requested_key;
 	}
@@ -493,7 +494,7 @@ void *__udreg_register(void *addr, uint64_t length, void *context)
 		return NULL;
     }
 
-	if (_gnix_mr_mode == FI_MR_SCALABLE) {
+	if (domain->mr_mode == FI_MR_SCALABLE) {
 		flags |= (GNI_MEM_USE_VMDH | GNI_MEM_UPDATE_REGION); //GNI_MEM_RESERVE_REGION);
 		vmdh_index = reg_ctx->vmdh_index;
 	}

@@ -186,12 +186,15 @@ extern enum fi_mr_mode _gnix_mr_mode;
 int _gnix_dom_ops_update_mr(struct fid_mr *fi_mr);
 
 __attribute__((unused))
-static inline int _gnix_get_next_reserved_key()
+static inline int _gnix_get_next_reserved_key(enum fi_mr_mode mr_mode)
 {
 	int ret;
 
-	ret = (_gnix_mr_mode == FI_MR_SCALABLE) ?
+	ret = (mr_mode == FI_MR_SCALABLE) ?
 			atomic_inc(&_gnix_next_reserved_mr_key) : -1;
+
+	fprintf(stderr, "returning key=%d\n", ret);
+
 
 	fprintf(stderr, "returning key=%d\n", ret);
 

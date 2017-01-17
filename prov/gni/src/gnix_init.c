@@ -102,12 +102,9 @@ uint8_t precomputed_crc_results[256] = { CRCS_256(0) };
 
 atomic_t _gnix_next_reserved_mr_key;
 
-/*
- *  _gnix_mr_mode: This variable can only truly be set once.
- *  Read-only after set
- */
 enum fi_mr_mode _gnix_mr_mode;
-fastlock_t _gnix_global_lock; // lock for locking the provider as a whole
+extern fastlock_t _gnix_ptag_list_lock;
+extern gnix_hashtable_t _gnix_ptags;
 
 #ifndef NDEBUG
 static inline uint8_t __gni_crc_bits(uint8_t data)
@@ -151,6 +148,7 @@ static void __validate_precomputed_crcs(void)
 }
 #endif /* NDEBUG */
 
+
 /**
  * Initialization function for performing global setup
  */
@@ -158,10 +156,23 @@ __attribute__((constructor))
 void _gnix_init(void)
 {
 	static int called=0;
+	gnix_hashtable_attr_t attr = {
+			.ht_initial_size = 8,
+			.ht_maximum_size = 256,
+			.ht_increase_step = 2,
+			.ht_increase_type = GNIX_HT_INCREASE_MULT,
+			.ht_collision_thresh = 400,
+			.ht_hash_seed = 0xdeadbeef,
+			.ht_internal_locking = 1,
+			.destructor = NULL,
+	};
+	int ret;
 
 	if (called==0) {
-		fastlock_init(&_gnix_global_lock);
-		_gnix_mr_mode = FI_MR_UNSPEC;
+		fastlock_init(&_gnix_ptag_list_lock);
+		ret = _gnix_ht_init(&_gnix_ptags, &attr);
+		assert(ret == FI_SUCCESS);
+
 		atomic_initialize(&_gnix_next_reserved_mr_key,
 				GNIX_FIRST_RESERVED_REG);
 

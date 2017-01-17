@@ -297,6 +297,7 @@ static int __create_slab(struct gnix_mbox_alloc_handle *handle)
 	size_t total_size;
 	int ret;
 	int vmdh_index;
+	enum fi_mr_mode mr_mode;
 	int flags = GNI_MEM_READWRITE;
 
 	GNIX_TRACE(FI_LOG_EP_CTRL, "\n");
@@ -549,6 +550,7 @@ static int __fill_mbox(struct gnix_mbox_alloc_handle *handle,
 	*ptr = out;
 
 	return ret;
+err_set_resources:
 
 err_invalid:
 	free(out);

@@ -410,6 +410,7 @@ struct gnix_fid_domain {
 	int mr_is_init;
 	int mdd_resources_set;
 	int udreg_reg_limit;
+	enum fi_mr_mode mr_mode;
 #ifdef HAVE_UDREG
 	udreg_cache_handle_t udreg_cache;
 	fastlock_t udreg_lock;
@@ -1161,5 +1162,7 @@ void _gnix_init(void);
 #define DIRECT_FN
 #define STATIC static
 #endif
+
+int _gnix_lookup_ptag_mr_mode(uint8_t ptag);
 
 #endif /* _GNIX_H_ */

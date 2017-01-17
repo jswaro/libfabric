@@ -44,7 +44,9 @@
 #include "gnix_util.h"
 #include "gnix_xpmem.h"
 
-extern fastlock_t _gnix_global_lock;
+
+fastlock_t _gnix_ptags_lock;
+gnix_hashtable_t *_gnix_ptags;
 
 gni_cq_mode_t gnix_def_gni_cq_modes = GNI_CQ_PHYS_PAGES;
 
@@ -62,6 +64,35 @@ static struct fi_ops gnix_stx_ops;
 static struct fi_ops gnix_domain_fi_ops;
 static struct fi_ops_mr gnix_domain_mr_ops;
 static struct fi_ops_domain gnix_domain_ops;
+
+int _gnix_lookup_ptag_mr_mode(uint8_t ptag)
+{
+	enum fi_mr_mode mode;
+
+	mode = (enum_fi_mr_mode) _gnix_ht_lookup(
+			_gnix_ptags, (gnix_ht_key_t) ptag);
+
+	return (mode == FI_MR_UNSPEC) ? -FI_ENOENT : mode;
+}
+
+static inline int __validate_mr_mode_requirements(
+		uint8_t ptag, enum fi_mr_mode mr_mode)
+{
+	enum fi_mr_mode actual_mode;
+
+	actual_mode = _gnix_lookup_ptag_mr_mode(ptag);
+
+	return actual_mode == mr_mode || actual_mode == -FI_ENOENT;
+}
+
+static inline void __insert_ptag_into_list(
+		uint8_t ptag, enum fi_mr_mode mr_mode)
+{
+	int ret;
+
+	ret = _gnix_ht_insert(_gnix_ptags, (gnix_ht_key_t) ptag, (mr_mode));
+	assert(ret == FI_SUCCESS);
+}
 
 static void __domain_destruct(void *obj)
 {
@@ -595,6 +626,13 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 		goto err;
 	}
 
+	if (!__validate_mr_mode_requirements(ptag, info->domain_attr->mr_mode)) {
+		GNIX_ERR(FI_LOG_DOMAIN, "GNIX provider cannot support two memory "
+						"models in use at the same time using the same ptag.");
+		ret = -FI_EINVAL;
+		goto err;
+	}
+
 	domain->mr_cache_attr = _gnix_default_mr_cache_attr;
 	domain->mr_cache_attr.reg_context = (void *) domain;
 	domain->mr_cache_attr.dereg_context = NULL;
@@ -654,22 +692,20 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 	domain->control_progress = info->domain_attr->control_progress;
 	domain->data_progress = info->domain_attr->data_progress;
 	domain->thread_model = info->domain_attr->threading;
-	_gnix_mr_mode = (info->domain_attr->mr_mode == FI_MR_SCALABLE) ?
+	domain->mr_mode = (info->domain_attr->mr_mode == FI_MR_SCALABLE) ?
 			FI_MR_SCALABLE : FI_MR_BASIC;
 
+	__insert_ptag_into_list(ptag, domain->mr_mode);
 	domain->mr_is_init = 0;
-
 	fastlock_init(&domain->cm_nic_lock);
 
 	_gnix_open_cache(domain, GNIX_DEFAULT_CACHE_TYPE);
-	fastlock_release(&_gnix_global_lock);
 
 	*dom = &domain->domain_fid;
 
 	return FI_SUCCESS;
 
 err:
-	fastlock_release(&_gnix_global_lock);
 	if (domain != NULL) {
 		free(domain);
 	}
