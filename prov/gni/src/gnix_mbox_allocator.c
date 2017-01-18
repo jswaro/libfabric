@@ -341,13 +341,14 @@ static int __create_slab(struct gnix_mbox_alloc_handle *handle)
 		goto err_alloc_bitmap;
 	}
 
-	vmdh_index = _gnix_get_next_reserved_key();
-	flags |= (_gnix_mr_mode == FI_MR_SCALABLE) ?
+	mr_mode = _gnix_lookup_ptag_mr_mode(handle->nic_handle->ptag);
+	vmdh_index = _gnix_get_next_reserved_key(mr_mode);
+	flags |= (mr_mode == FI_MR_SCALABLE) ?
 			(GNI_MEM_USE_VMDH) : 0;
 
 	COND_ACQUIRE(handle->nic_handle->requires_lock, &handle->nic_handle->lock);
 	if (!handle->nic_handle->mdd_resources_set && 
-		_gnix_mr_mode == FI_MR_SCALABLE) {
+		mr_mode == FI_MR_SCALABLE) {
 		status = GNI_SetMddResources(handle->nic_handle->gni_nic_hndl, 
 			GNIX_MAX_VMDH_REG);
 		assert(status == GNI_RC_SUCCESS);
@@ -364,6 +365,11 @@ static int __create_slab(struct gnix_mbox_alloc_handle *handle)
 	if (status != GNI_RC_SUCCESS) {
 		GNIX_WARN(FI_LOG_EP_CTRL, "GNI_MemRegister failed: %s\n",
 			  gni_err_str[status]);
+		GNIX_WARN(FI_LOG_EP_CTRL, "nic_hndl=%p addr=%p length=%llu cq_hndl=%p "
+                        "flags=%08x vmdh_index=%d mem_hndl=%p mr_mode=%d\n",
+                        handle->nic_handle->gni_nic_hndl, slab->base, total_size, 
+			handle->cq_handle,
+                        flags, vmdh_index, &slab->memory_handle, mr_mode);
 		ret = gnixu_to_fi_errno(status);
 		goto err_memregister;
 	}
@@ -375,7 +381,6 @@ static int __create_slab(struct gnix_mbox_alloc_handle *handle)
 	handle->last_offset += total_size;
 
 	return ret;
-err_set_resources:
 
 err_memregister:
 	_gnix_free_bitmap(slab->used);
@@ -550,7 +555,6 @@ static int __fill_mbox(struct gnix_mbox_alloc_handle *handle,
 	*ptr = out;
 
 	return ret;
-err_set_resources:
 
 err_invalid:
 	free(out);

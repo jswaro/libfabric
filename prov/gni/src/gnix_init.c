@@ -40,6 +40,7 @@
 #include "prov.h"
 
 #include "gnix_mr.h"
+#include "gnix_hashtable.h"
 /**
  * @note  To make sure that static linking will work, there must be at
  *        least one symbol in the file that requires gnix_init.o to have
@@ -101,9 +102,6 @@ atomic_t gnix_debug_next_tid;
 uint8_t precomputed_crc_results[256] = { CRCS_256(0) };
 
 atomic_t _gnix_next_reserved_mr_key;
-
-enum fi_mr_mode _gnix_mr_mode;
-extern fastlock_t _gnix_ptag_list_lock;
 extern gnix_hashtable_t _gnix_ptags;
 
 #ifndef NDEBUG
@@ -169,7 +167,6 @@ void _gnix_init(void)
 	int ret;
 
 	if (called==0) {
-		fastlock_init(&_gnix_ptag_list_lock);
 		ret = _gnix_ht_init(&_gnix_ptags, &attr);
 		assert(ret == FI_SUCCESS);
 

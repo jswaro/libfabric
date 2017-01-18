@@ -109,7 +109,7 @@ void _gnix_convert_key_to_mhdl_no_crc(
 	GNI_MEMHNDL_SET_NPAGES((*mhdl), GNI_MEMHNDL_NPGS_MASK);
 	GNI_MEMHNDL_SET_PAGESIZE((*mhdl), GNIX_MR_PAGE_SHIFT);
 
-	if (key->flags & GNIX_MR_BASIC_REG) {
+	if (key->flags & GNIX_MR_FLAG_BASIC_REG) {
 		va = (uint64_t) __sign_extend(va << GNIX_MR_PAGE_SHIFT,
 						  GNIX_MR_VA_BITS);
 
@@ -152,7 +152,7 @@ uint64_t _gnix_convert_mhdl_to_key(gni_mem_handle_t *mhdl)
 	if (GNI_MEMHNDL_GET_VA((*mhdl)) == 0) {
 		key.value = GNI_MEMHNDL_GET_MDH((*mhdl));
 	} else {
-		key.flags = GNIX_MR_BASIC_REG;
+		key.flags = GNIX_MR_FLAG_BASIC_REG;
 
 		key.pfn = GNI_MEMHNDL_GET_VA((*mhdl)) >> GNIX_MR_PAGE_SHIFT;
 		key.mdd = GNI_MEMHNDL_GET_MDH((*mhdl));
@@ -357,12 +357,12 @@ static inline void *__gnix_generic_register(
         }
 
 	COND_ACQUIRE(nic->requires_lock, &nic->lock);
-	if (!nic->mdd_resources_set && _gnix_mr_mode == FI_MR_SCALABLE) {
+	if (!nic->mdd_resources_set && domain->mr_mode  == FI_MR_SCALABLE) {
 		grc = GNI_SetMddResources(nic->gni_nic_hndl,
 				GNIX_MAX_VMDH_REG);
 		assert(grc == GNI_RC_SUCCESS);
 
-		nic->mdd_resources_set = domain->mdd_resources_set = 1;
+		nic->mdd_resources_set = 1;
 	}
 
 	grc = GNI_MemRegister(nic->gni_nic_hndl, (uint64_t) address,
@@ -373,6 +373,10 @@ static inline void *__gnix_generic_register(
 	if (unlikely(grc != GNI_RC_SUCCESS)) {
 		GNIX_INFO(FI_LOG_MR, "failed to register memory with uGNI, "
 			  "ret=%s\n", gni_err_str[grc]);
+		GNIX_INFO(FI_LOG_MR, "nic_hndl=%p addr=%p length=%llu cq_hndl=%p "
+			"flags=%08x vmdh_index=%d mem_hndl=%p mr_mode=%d\n", 
+			nic->gni_nic_hndl, address, length, dst_cq_hndl, 
+			flags, vmdh_index, &md->mem_hndl, domain->mr_mode);
 		_gnix_ref_put(nic);
 
 		return NULL;
@@ -415,7 +419,7 @@ static void *__gnix_register_region(
 		flags |= GNI_MEM_READ_ONLY;
 
 	if (domain->mr_mode == FI_MR_SCALABLE) {
-		flags |= (GNI_MEM_USE_VMDH | GNI_MEM_UPDATE_REGION); //GNI_MEM_RESERVE_REGION);
+		flags |= (GNI_MEM_USE_VMDH); //GNI_MEM_RESERVE_REGION);
 		vmdh_index = fi_reg_context->requested_key;
 	}
 
@@ -495,7 +499,7 @@ void *__udreg_register(void *addr, uint64_t length, void *context)
     }
 
 	if (domain->mr_mode == FI_MR_SCALABLE) {
-		flags |= (GNI_MEM_USE_VMDH | GNI_MEM_UPDATE_REGION); //GNI_MEM_RESERVE_REGION);
+		flags |= (GNI_MEM_USE_VMDH); //GNI_MEM_RESERVE_REGION);
 		vmdh_index = reg_ctx->vmdh_index;
 	}
 

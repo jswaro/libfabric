@@ -43,10 +43,10 @@
 #include "gnix_nic.h"
 #include "gnix_util.h"
 #include "gnix_xpmem.h"
-
+#include "gnix_hashtable.h"
 
 fastlock_t _gnix_ptags_lock;
-gnix_hashtable_t *_gnix_ptags;
+gnix_hashtable_t _gnix_ptags;
 
 gni_cq_mode_t gnix_def_gni_cq_modes = GNI_CQ_PHYS_PAGES;
 
@@ -69,8 +69,10 @@ int _gnix_lookup_ptag_mr_mode(uint8_t ptag)
 {
 	enum fi_mr_mode mode;
 
-	mode = (enum_fi_mr_mode) _gnix_ht_lookup(
-			_gnix_ptags, (gnix_ht_key_t) ptag);
+	mode = (enum fi_mr_mode) _gnix_ht_lookup(
+			&_gnix_ptags, (gnix_ht_key_t) ptag);
+
+	GNIX_INFO(FI_LOG_DOMAIN, "ptag=%d mr_mode=%d\n", ptag, mode);
 
 	return (mode == FI_MR_UNSPEC) ? -FI_ENOENT : mode;
 }
@@ -90,7 +92,7 @@ static inline void __insert_ptag_into_list(
 {
 	int ret;
 
-	ret = _gnix_ht_insert(_gnix_ptags, (gnix_ht_key_t) ptag, (mr_mode));
+	ret = _gnix_ht_insert(&_gnix_ptags, (gnix_ht_key_t) ptag,(void *) mr_mode);
 	assert(ret == FI_SUCCESS);
 }
 
@@ -582,20 +584,6 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 	// force fi_mr_scalable for testing
 	info->domain_attr->mr_mode = FI_MR_SCALABLE;
 
-	fastlock_acquire(&_gnix_global_lock);
-	if (_gnix_mr_mode != FI_MR_UNSPEC &&
-				_gnix_mr_mode != info->domain_attr->mr_mode &&
-				info->domain_attr->mr_mode != FI_MR_UNSPEC) {
-		GNIX_INFO(FI_LOG_DOMAIN, "GNIX provider cannot support two memory "
-				"models in use at the same time. current=%d requested=%d\n", _gnix_mr_mode, info->domain_attr->mr_mode);
-		ret = -FI_EINVAL;
-		goto err;
-	}
-
-	if (_gnix_mr_mode != info->domain_attr->mr_mode &&
-		info->domain_attr->mr_mode == FI_MR_UNSPEC)
-		info->domain_attr->mr_mode = _gnix_mr_mode;
-
 	/*
 	 * check cookie/ptag credentials - for FI_EP_MSG we may be creating a
 	 * domain
@@ -628,7 +616,7 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 
 	if (!__validate_mr_mode_requirements(ptag, info->domain_attr->mr_mode)) {
 		GNIX_ERR(FI_LOG_DOMAIN, "GNIX provider cannot support two memory "
-						"models in use at the same time using the same ptag.");
+			"models in use at the same time using the same ptag.");
 		ret = -FI_EINVAL;
 		goto err;
 	}
@@ -695,11 +683,13 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 	domain->mr_mode = (info->domain_attr->mr_mode == FI_MR_SCALABLE) ?
 			FI_MR_SCALABLE : FI_MR_BASIC;
 
+	GNIX_INFO(FI_LOG_DOMAIN, "setting ptag %d mr_mode to %d\n", 
+		ptag, domain->mr_mode);
 	__insert_ptag_into_list(ptag, domain->mr_mode);
 	domain->mr_is_init = 0;
 	fastlock_init(&domain->cm_nic_lock);
 
-	_gnix_open_cache(domain, GNIX_DEFAULT_CACHE_TYPE);
+	_gnix_open_cache(domain, GNIX_MR_TYPE_NONE);
 
 	*dom = &domain->domain_fid;
 

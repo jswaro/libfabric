@@ -50,17 +50,18 @@
 #define GNIX_MR_PFN_BITS 37
 #define GNIX_MR_MDD_BITS 12
 #define GNIX_MR_FMT_BITS 1
-#define GNIX_MR_FLAG_BITS 1
+#define GNIX_MR_FLAG_BITS 2
 #define GNIX_MR_VA_BITS (GNIX_MR_PFN_BITS + GNIX_MR_PAGE_SHIFT)
 #define GNIX_MR_KEY_BITS (GNIX_MR_PFN_BITS + GNIX_MR_MDD_BITS)
 #define GNIX_MR_RESERVED_BITS \
 	(GNIX_MR_KEY_BITS + GNIX_MR_FLAG_BITS + GNIX_MR_FMT_BITS)
 #define GNIX_MR_PADDING_LENGTH (64 - GNIX_MR_RESERVED_BITS)
-#define GNIX_MAX_VMDH_REG (1 << 10)
+#define GNIX_MAX_VMDH_REG (1 << 8)
 #define GNIX_FIRST_RESERVED_REG ((GNIX_MAX_VMDH_REG) - ((GNIX_MAX_VMDH_REG) >> 2))
 
 enum {
-	GNIX_MR_FLAG_READONLY = 1 << 0
+	GNIX_MR_FLAG_READONLY = 1 << 0,
+	GNIX_MR_FLAG_BASIC_REG = 1 << 1,
 };
 
 enum {
@@ -181,7 +182,6 @@ int _gnix_flush_registration_cache(struct gnix_fid_domain *domain);
 
 extern gnix_mr_cache_attr_t _gnix_default_mr_cache_attr;
 extern atomic_t _gnix_next_reserved_mr_key;
-extern enum fi_mr_mode _gnix_mr_mode;
 
 int _gnix_dom_ops_update_mr(struct fid_mr *fi_mr);
 
@@ -194,10 +194,6 @@ static inline int _gnix_get_next_reserved_key(enum fi_mr_mode mr_mode)
 			atomic_inc(&_gnix_next_reserved_mr_key) : -1;
 
 	fprintf(stderr, "returning key=%d\n", ret);
-
-
-	fprintf(stderr, "returning key=%d\n", ret);
-
 #if ENABLE_DEBUG
 	assert(ret < GNIX_MAX_VMDH_REG);
 #endif
