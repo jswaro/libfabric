@@ -408,9 +408,8 @@ struct gnix_fid_domain {
 	 * be changed at this point.
 	 */
 	int mr_is_init;
-	int mdd_resources_set;
 	int udreg_reg_limit;
-	enum fi_mr_mode mr_mode;
+	int mr_mode;
 #ifdef HAVE_UDREG
 	udreg_cache_handle_t udreg_cache;
 	fastlock_t udreg_lock;

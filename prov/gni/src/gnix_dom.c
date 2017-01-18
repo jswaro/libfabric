@@ -88,7 +88,7 @@ static inline int __validate_mr_mode_requirements(
 }
 
 static inline void __insert_ptag_into_list(
-		uint8_t ptag, enum fi_mr_mode mr_mode)
+		uint8_t ptag, int mr_mode)
 {
 	int ret;
 
@@ -581,9 +581,6 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 
 	fabric_priv = container_of(fabric, struct gnix_fid_fabric, fab_fid);
 
-	// force fi_mr_scalable for testing
-	info->domain_attr->mr_mode = FI_MR_SCALABLE;
-
 	/*
 	 * check cookie/ptag credentials - for FI_EP_MSG we may be creating a
 	 * domain
@@ -689,7 +686,7 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 	domain->mr_is_init = 0;
 	fastlock_init(&domain->cm_nic_lock);
 
-	_gnix_open_cache(domain, GNIX_MR_TYPE_NONE);
+	_gnix_open_cache(domain, GNIX_DEFAULT_CACHE_TYPE);
 
 	*dom = &domain->domain_fid;
 

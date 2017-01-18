@@ -71,7 +71,7 @@ enum {
 	GNIX_MR_MAX_TYPE,
 };
 
-#define GNIX_DEFAULT_CACHE_TYPE GNIX_MR_TYPE_INTERNAL
+#define GNIX_DEFAULT_CACHE_TYPE GNIX_MR_TYPE_NONE
 
 /* forward declarations */
 struct gnix_fid_domain;
@@ -99,7 +99,7 @@ struct gnix_fid_mem_desc {
 #endif
 };
 
-#define GNIX_MR_MAX_REQUESTED_KEY (1 << 63)
+#define GNIX_MR_MAX_REQUESTED_KEY GNIX_MAX_VMDH_REG
 
 /**
  * @brief gnix memory region key
