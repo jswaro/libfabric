@@ -68,9 +68,12 @@ static struct fi_ops_domain gnix_domain_ops;
 int _gnix_lookup_ptag_mr_mode(uint8_t ptag)
 {
 	enum fi_mr_mode mode;
+	uint64_t _ptag = ptag;
+
+	GNIX_INFO(FI_LOG_DOMAIN, "looking up ptag=%d\n", _ptag);
 
 	mode = (enum fi_mr_mode) _gnix_ht_lookup(
-			&_gnix_ptags, (gnix_ht_key_t) ptag);
+			&_gnix_ptags, (gnix_ht_key_t) _ptag);
 
 	GNIX_INFO(FI_LOG_DOMAIN, "ptag=%d mr_mode=%d\n", ptag, mode);
 
@@ -78,7 +81,7 @@ int _gnix_lookup_ptag_mr_mode(uint8_t ptag)
 }
 
 static inline int __validate_mr_mode_requirements(
-		uint8_t ptag, enum fi_mr_mode mr_mode)
+		uint8_t ptag, int mr_mode)
 {
 	enum fi_mr_mode actual_mode;
 

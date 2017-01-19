@@ -166,10 +166,18 @@ void _gnix_init(void)
 	};
 	int ret;
 
-	if (called==0) {
-		ret = _gnix_ht_init(&_gnix_ptags, &attr);
-		assert(ret == FI_SUCCESS);
+	GNIX_INFO(FI_LOG_FABRIC, "init called, called=%d\n", called);
 
+	if (called==0) 
+		{
+		ret = _gnix_ht_init(&_gnix_ptags, &attr);
+	
+		fprintf(stderr, "initialized the hashtable, ret=%d\n", ret);
+		assert(ret == FI_SUCCESS);
+	
+		GNIX_INFO(FI_LOG_FABRIC, "ht.ret=%d\n", ret);
+
+	
 		atomic_initialize(&_gnix_next_reserved_mr_key,
 				GNIX_FIRST_RESERVED_REG);
 
