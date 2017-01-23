@@ -102,7 +102,6 @@ atomic_t gnix_debug_next_tid;
 uint8_t precomputed_crc_results[256] = { CRCS_256(0) };
 
 atomic_t _gnix_next_reserved_mr_key;
-extern gnix_hashtable_t _gnix_ptags;
 
 #ifndef NDEBUG
 static inline uint8_t __gni_crc_bits(uint8_t data)
@@ -154,30 +153,8 @@ __attribute__((constructor))
 void _gnix_init(void)
 {
 	static int called=0;
-	gnix_hashtable_attr_t attr = {
-			.ht_initial_size = 8,
-			.ht_maximum_size = 256,
-			.ht_increase_step = 2,
-			.ht_increase_type = GNIX_HT_INCREASE_MULT,
-			.ht_collision_thresh = 400,
-			.ht_hash_seed = 0xdeadbeef,
-			.ht_internal_locking = 1,
-			.destructor = NULL,
-	};
-	int ret;
 
-	GNIX_INFO(FI_LOG_FABRIC, "init called, called=%d\n", called);
-
-	if (called==0) 
-		{
-		ret = _gnix_ht_init(&_gnix_ptags, &attr);
-	
-		fprintf(stderr, "initialized the hashtable, ret=%d\n", ret);
-		assert(ret == FI_SUCCESS);
-	
-		GNIX_INFO(FI_LOG_FABRIC, "ht.ret=%d\n", ret);
-
-	
+	if (called==0) {
 		atomic_initialize(&_gnix_next_reserved_mr_key,
 				GNIX_FIRST_RESERVED_REG);
 

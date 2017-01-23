@@ -65,40 +65,6 @@ static struct fi_ops gnix_domain_fi_ops;
 static struct fi_ops_mr gnix_domain_mr_ops;
 static struct fi_ops_domain gnix_domain_ops;
 
-int _gnix_lookup_ptag_mr_mode(uint8_t ptag)
-{
-	enum fi_mr_mode mode;
-	uint64_t _ptag = ptag;
-
-	GNIX_INFO(FI_LOG_DOMAIN, "looking up ptag=%d\n", _ptag);
-
-	mode = (enum fi_mr_mode) _gnix_ht_lookup(
-			&_gnix_ptags, (gnix_ht_key_t) _ptag);
-
-	GNIX_INFO(FI_LOG_DOMAIN, "ptag=%d mr_mode=%d\n", ptag, mode);
-
-	return (mode == FI_MR_UNSPEC) ? -FI_ENOENT : mode;
-}
-
-static inline int __validate_mr_mode_requirements(
-		uint8_t ptag, int mr_mode)
-{
-	enum fi_mr_mode actual_mode;
-
-	actual_mode = _gnix_lookup_ptag_mr_mode(ptag);
-
-	return actual_mode == mr_mode || actual_mode == -FI_ENOENT;
-}
-
-static inline void __insert_ptag_into_list(
-		uint8_t ptag, int mr_mode)
-{
-	int ret;
-
-	ret = _gnix_ht_insert(&_gnix_ptags, (gnix_ht_key_t) ptag,(void *) mr_mode);
-	assert(ret == FI_SUCCESS);
-}
-
 static void __domain_destruct(void *obj)
 {
 	int ret = FI_SUCCESS;
@@ -614,12 +580,8 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 		goto err;
 	}
 
-	if (!__validate_mr_mode_requirements(ptag, info->domain_attr->mr_mode)) {
-		GNIX_ERR(FI_LOG_DOMAIN, "GNIX provider cannot support two memory "
-			"models in use at the same time using the same ptag.");
-		ret = -FI_EINVAL;
-		goto err;
-	}
+	//TODO: Should verify that this domain is not using a different memory
+	//        model than ptag associated with it
 
 	domain->mr_cache_attr = _gnix_default_mr_cache_attr;
 	domain->mr_cache_attr.reg_context = (void *) domain;
@@ -685,7 +647,6 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 
 	GNIX_INFO(FI_LOG_DOMAIN, "setting ptag %d mr_mode to %d\n", 
 		ptag, domain->mr_mode);
-	__insert_ptag_into_list(ptag, domain->mr_mode);
 	domain->mr_is_init = 0;
 	fastlock_init(&domain->cm_nic_lock);
 

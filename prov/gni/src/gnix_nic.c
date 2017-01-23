@@ -214,7 +214,8 @@ static int __nic_setup_irq_cq(struct gnix_nic *nic)
 		goto err;
 	}
 
-	mr_mode = _gnix_lookup_ptag_mr_mode(nic->ptag);
+	//TODO: get correct mr mode from nic
+	mr_mode = nic->mr_mode; 
 	vmdh_index = _gnix_get_next_reserved_key(mr_mode);
 	flags |= (mr_mode == FI_MR_SCALABLE) ?
 			(GNI_MEM_USE_VMDH) : 0;
@@ -979,6 +980,8 @@ int gnix_nic_alloc(struct gnix_fid_domain *domain,
 			goto err;
 		}
 
+		nic->mr_mode = domain->mr_mode;
+
 		if (nic_attr->use_cdm_id == false) {
 			ret = _gnix_cm_nic_create_cdm_id(domain, &fake_cdm_id);
 			if (ret != FI_SUCCESS) {
@@ -1307,6 +1310,7 @@ int gnix_nic_alloc(struct gnix_fid_domain *domain,
 
 	if (nic) {
 		nic->requires_lock = domain->thread_model != FI_THREAD_COMPLETION;
+		nic->mr_mode = domain->mr_mode;
 	}
 
 	*nic_ptr = nic;

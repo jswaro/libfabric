@@ -62,8 +62,9 @@ int _gnix_dom_ops_update_mr(struct fid_mr *fi_mr) {
 
 	nic = gnix_mr->nic;
 
-	if (_gnix_lookup_ptag_mr_mode(nic->ptag) != FI_MR_SCALABLE)
-		return -FI_EOPNOTSUPP;
+	//TODO: Check to see that this ptag is associated with the right MR mode
+	//if (_gnix_lookup_ptag_mr_mode(nic->ptag) != FI_MR_SCALABLE)
+	//	return -FI_EOPNOTSUPP;
 
 	COND_ACQUIRE(nic->requires_lock, &nic->lock);
 	grc = GNI_MemRegister(nic->gni_nic_hndl, gnix_mr->addr, gnix_mr->len,

@@ -1162,6 +1162,4 @@ void _gnix_init(void);
 #define STATIC static
 #endif
 
-int _gnix_lookup_ptag_mr_mode(uint8_t ptag);
-
 #endif /* _GNIX_H_ */

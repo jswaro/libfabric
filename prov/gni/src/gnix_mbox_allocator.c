@@ -341,7 +341,8 @@ static int __create_slab(struct gnix_mbox_alloc_handle *handle)
 		goto err_alloc_bitmap;
 	}
 
-	mr_mode = _gnix_lookup_ptag_mr_mode(handle->nic_handle->ptag);
+	//TODO: Get the mr mode for this ptag
+	mr_mode = handle->nic_handle->mr_mode;
 	vmdh_index = _gnix_get_next_reserved_key(mr_mode);
 	flags |= (mr_mode == FI_MR_SCALABLE) ?
 			(GNI_MEM_USE_VMDH) : 0;

@@ -193,7 +193,6 @@ static inline int _gnix_get_next_reserved_key(enum fi_mr_mode mr_mode)
 	ret = (mr_mode == FI_MR_SCALABLE) ?
 			atomic_inc(&_gnix_next_reserved_mr_key) : -1;
 
-	fprintf(stderr, "returning key=%d\n", ret);
 #if ENABLE_DEBUG
 	assert(ret < GNIX_MAX_VMDH_REG);
 #endif
