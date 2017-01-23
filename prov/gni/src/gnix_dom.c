@@ -43,10 +43,6 @@
 #include "gnix_nic.h"
 #include "gnix_util.h"
 #include "gnix_xpmem.h"
-#include "gnix_hashtable.h"
-
-fastlock_t _gnix_ptags_lock;
-gnix_hashtable_t _gnix_ptags;
 
 gni_cq_mode_t gnix_def_gni_cq_modes = GNI_CQ_PHYS_PAGES;
 
@@ -642,8 +638,8 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 	domain->control_progress = info->domain_attr->control_progress;
 	domain->data_progress = info->domain_attr->data_progress;
 	domain->thread_model = info->domain_attr->threading;
-	domain->mr_mode = (info->domain_attr->mr_mode == FI_MR_SCALABLE) ?
-			FI_MR_SCALABLE : FI_MR_BASIC;
+	domain->mr_mode = (info->domain_attr->mr_mode == FI_MR_UNSPEC) ? 
+		FI_MR_BASIC : info->domain_attr->mr_mode;
 
 	GNIX_INFO(FI_LOG_DOMAIN, "setting ptag %d mr_mode to %d\n", 
 		ptag, domain->mr_mode);

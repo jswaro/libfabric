@@ -71,7 +71,7 @@ enum {
 	GNIX_MR_MAX_TYPE,
 };
 
-#define GNIX_DEFAULT_CACHE_TYPE GNIX_MR_TYPE_NONE
+#define GNIX_DEFAULT_CACHE_TYPE GNIX_MR_TYPE_INTERNAL
 
 /* forward declarations */
 struct gnix_fid_domain;
