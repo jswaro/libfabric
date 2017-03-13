@@ -76,6 +76,7 @@
 #include "gnix_mr_cache.h"
 #include "gnix_mr_notifier.h"
 #include "gnix_nic.h"
+#include "gnix_auth_key.h"
 
 #define GNI_MAJOR_VERSION 1
 #define GNI_MINOR_VERSION 0
@@ -375,6 +376,9 @@ struct gnix_fid_fabric {
 extern struct fi_ops_cm gnix_ep_msg_ops_cm;
 extern struct fi_ops_cm gnix_ep_ops_cm;
 
+#define GNIX_GET_MR_CACHE_INFO(domain, auth_key) \
+	({ &(domain)->mr_cache_info[(auth_key)->ptag]; })
+
 /*
  * a gnix_fid_domain is associated with one or more gnix_nic's.
  * the gni_nics are in turn associated with ep's opened off of the
@@ -390,8 +394,6 @@ struct gnix_fid_domain {
 	struct gnix_fid_fabric *fabric;
 	struct gnix_cm_nic *cm_nic;
 	fastlock_t cm_nic_lock;
-	uint8_t ptag;
-	uint32_t cookie;
 	uint32_t cdm_id_seed;
 	uint32_t addr_format;
 	/* user tunable parameters accessed via open_ops functions */
@@ -404,10 +406,9 @@ struct gnix_fid_domain {
 	enum fi_threading thread_model;
 	struct gnix_reference ref_cnt;
 	gnix_mr_cache_attr_t mr_cache_attr;
-	gnix_mr_cache_t *mr_cache_rw;
-	gnix_mr_cache_t *mr_cache_ro;
-	fastlock_t mr_cache_lock;
+	struct gnix_mr_cache_info *mr_cache_info;
 	struct gnix_mr_ops *mr_ops;
+	fastlock_t mr_cache_lock;
 	int mr_cache_type;
 	/* flag to indicate that memory registration is initialized and should not
 	 * be changed at this point.
@@ -415,6 +416,7 @@ struct gnix_fid_domain {
 	int mr_is_init;
 	int mr_iov_limit;
 	int udreg_reg_limit;
+	struct gnix_auth_key *auth_key;
 #ifdef HAVE_UDREG
 	udreg_cache_handle_t udreg_cache;
 #endif
@@ -535,6 +537,7 @@ struct gnix_fid_ep {
 	bool rx_enabled;
 	bool shared_tx;
 	bool requires_lock;
+	struct gnix_auth_key *auth_key;
 	int last_cached;
 	struct gnix_addr_cache_entry addr_cache[GNIX_ADDR_CACHE_SIZE];
 	int send_selective_completion;
@@ -620,6 +623,7 @@ struct gnix_fid_sep {
 	struct gnix_ep_name my_name;
 	fastlock_t sep_lock;
 	struct gnix_reference ref_cnt;
+	struct gnix_auth_key *auth_key;
 };
 
 /**
@@ -654,6 +658,7 @@ struct gnix_fid_stx {
 	struct fid_stx stx_fid;
 	struct gnix_fid_domain *domain;
 	struct gnix_nic *nic;
+	struct gnix_auth_key *auth_key;
 	struct gnix_reference ref_cnt;
 };
 
@@ -1068,6 +1073,15 @@ static inline int _gnix_req_inject_smsg_err(struct gnix_fab_req *req)
 		return 0;
 	}
 }
+
+extern int gnix_default_user_registration_limit;
+extern int gnix_default_prov_registration_limit;
+extern int gnix_dealloc_aki_on_fabric_close;
+
+/* This is a per-node limitation of the GNI provider. Each process
+   should request only as many registrations as it intends to use
+   and no more than that. */
+#define GNIX_MAX_SCALABLE_REGISTRATIONS 4096
 
 /*
  * work queue struct, used for handling delay ops, etc. in a generic wat
