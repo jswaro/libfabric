@@ -96,9 +96,7 @@ Test(nic, alloc_free)
 	struct gnix_auth_key *auth_key = domain->auth_key;
 	struct gnix_nic_attr nic_attr = {0};
 
-
 	nic_attr.auth_key = auth_key;
-
 	for (i = 0; i < num_nics; i++) {
 		ret = gnix_nic_alloc(container_of(dom, struct gnix_fid_domain,
 						  domain_fid),
