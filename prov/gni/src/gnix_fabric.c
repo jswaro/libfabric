@@ -558,8 +558,6 @@ static int _gnix_ep_getinfo(enum fi_ep_type ep_type, uint32_t version,
 				GNIX_WARN(FI_LOG_FABRIC,
 						  "GNI provider doesn't currently support MR_SCALABLE\n");
 				goto err;
-			default:
-				assert(0);
 			}
 
 			switch (hints->domain_attr->threading) {

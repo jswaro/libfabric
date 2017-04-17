@@ -151,11 +151,12 @@ void _gnix_init(void)
 	static int called=0;
 
 	if (called==0) {
-		if (sizeof(struct gnix_mr_key) != 8) {
+		if (sizeof(struct gnix_mr_key) != sizeof(uint64_t)) {
 			GNIX_FATAL(FI_LOG_FABRIC,
 				"gnix_mr_key size is invalid, "
-				"size=%d expected=8\n",
-				sizeof(struct gnix_mr_key));
+				"size=%d expected=%d\n",
+				sizeof(struct gnix_mr_key),
+				sizeof(uint64_t));
 			assert(0);
 		}
 

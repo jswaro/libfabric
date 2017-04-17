@@ -47,6 +47,7 @@
 #include "gnix_auth_key.h"
 
 #define GNIX_MR_MODE_DEFAULT FI_MR_BASIC
+#define GNIX_NUM_PTAGS 256
 
 gni_cq_mode_t gnix_def_gni_cq_modes = GNI_CQ_PHYS_PAGES;
 
@@ -74,7 +75,7 @@ static void __domain_destruct(void *obj)
 
 	GNIX_TRACE(FI_LOG_DOMAIN, "\n");
 
-	for (i = 0; i < 256; i++) {
+	for (i = 0; i < GNIX_NUM_PTAGS; i++) {
 		info = &domain->mr_cache_info[i];
 
 		fastlock_acquire(&info->mr_cache_lock);
@@ -221,7 +222,7 @@ static int gnix_domain_close(fid_t fid)
 		goto err;
 	}
 
-	for (i = 0; i < 256; i++) {
+	for (i = 0; i < GNIX_NUM_PTAGS; i++) {
 		info = &domain->mr_cache_info[i];
 
 		if (!domain->mr_cache_info[i].inuse)
@@ -592,7 +593,8 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 		goto err;
 	}
 
-	domain->mr_cache_info = calloc(sizeof(*domain->mr_cache_info), 256);
+	domain->mr_cache_info = calloc(sizeof(*domain->mr_cache_info),
+		GNIX_NUM_PTAGS);
 	if (!domain->mr_cache_info) {
 		ret = -FI_ENOMEM;
 		goto err;
@@ -610,7 +612,7 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 		goto err;
 
 	fastlock_init(&domain->mr_cache_lock);
-	for (i = 0; i < 256; i++) {
+	for (i = 0; i < GNIX_NUM_PTAGS; i++) {
 		domain->mr_cache_info[i].inuse = 0;
 		domain->mr_cache_info[i].domain = domain;
 		fastlock_init(&domain->mr_cache_info[i].mr_cache_lock);

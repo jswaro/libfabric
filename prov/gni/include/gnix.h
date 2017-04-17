@@ -607,6 +607,7 @@ struct gnix_fid_ep {
  * @var my_name         ep name for this endpoint
  * @var sep_lock        lock protecting this sep object
  * @var ref_cnt         ref cnt on this object
+ * @var auth_key		GNIX authorization key
  */
 struct gnix_fid_sep {
 	struct fid_ep ep_fid;

@@ -881,7 +881,6 @@ int _gnix_nic_free(struct gnix_nic *nic)
 
 int gnix_nic_alloc(struct gnix_fid_domain *domain,
 		   struct gnix_nic_attr *attr,
-		   struct gnix_auth_key *auth_key,
 		   struct gnix_nic **nic_ptr)
 {
 	int ret = FI_SUCCESS;
@@ -894,6 +893,7 @@ int gnix_nic_alloc(struct gnix_fid_domain *domain,
 	uint32_t num_corespec_cpus = 0;
 	bool must_alloc_nic = false;
 	bool free_list_inited = false;
+	struct gnix_auth_key *auth_key;
 
 	GNIX_TRACE(FI_LOG_EP_CTRL, "\n");
 
@@ -907,6 +907,8 @@ int gnix_nic_alloc(struct gnix_fid_domain *domain,
 		nic_attr = attr;
 		must_alloc_nic = nic_attr->must_alloc;
 	}
+
+	auth_key = nic_attr->auth_key;
 
 	/*
 	 * If we've maxed out the number of nics for this domain/ptag,

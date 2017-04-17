@@ -387,6 +387,7 @@ static inline void *__gnix_generic_register(
 		struct gnix_auth_key *auth_key)
 {
 	struct gnix_nic *nic;
+	struct gnix_nic_attr nic_attr = {0};
 	gni_return_t grc = GNI_RC_SUCCESS;
 	int rc;
 
@@ -398,8 +399,9 @@ static inline void *__gnix_generic_register(
 			this point. Additionally, gnix_nic_alloc takes the
 			lock to add the nic. */
 		pthread_mutex_unlock(&gnix_nic_list_lock);
+		nic_attr.auth_key = auth_key;
 
-		rc = gnix_nic_alloc(domain, NULL, auth_key, &nic);
+		rc = gnix_nic_alloc(domain, &nic_attr, &nic);
 		if (rc) {
 			GNIX_INFO(FI_LOG_MR,
 				  "could not allocate nic to do mr_reg,"
