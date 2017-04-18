@@ -53,6 +53,7 @@
 
 #include <criterion/criterion.h>
 #include "gnix_rdma_headers.h"
+#include "common.h"
 
 /* Note: Set to ~FI_NOTIFY_FLAGS_ONLY since this was written before api 1.5 */
 static uint64_t mode_bits = ~FI_NOTIFY_FLAGS_ONLY;
@@ -68,8 +69,8 @@ static struct fid_cq *msg_cq[2];
 static struct fi_cq_attr cq_attr;
 
 #define BUF_SZ (8*1024)
-char *target;
-char *source;
+char *target, *target_base;
+char *source, *source_base;
 struct fid_mr *rem_mr, *loc_mr;
 uint64_t mr_key;
 
@@ -160,18 +161,20 @@ void cancel_setup(void)
 	ret = fi_enable(ep[1]);
 	cr_assert(!ret, "fi_ep_enable");
 
-	target = malloc(BUF_SZ);
-	assert(target);
+	target_base = malloc(GNIT_ALIGN_LEN(BUF_SZ));
+	assert(target_base);
+	target = GNIT_ALIGN_BUFFER(char *, target_base);
 
-	source = malloc(BUF_SZ);
-	assert(source);
+	source_base = malloc(GNIT_ALIGN_LEN(BUF_SZ));
+	assert(source_base);
+	source = GNIT_ALIGN_BUFFER(char *, source_base);
 
 	ret = fi_mr_reg(dom, target, BUF_SZ,
 			FI_REMOTE_WRITE, 0, 0, 0, &rem_mr, &target);
 	cr_assert_eq(ret, 0);
 
 	ret = fi_mr_reg(dom, source, BUF_SZ,
-			FI_REMOTE_WRITE, 0, 0, 0, &loc_mr, &source);
+			FI_REMOTE_WRITE, 0, 1, 0, &loc_mr, &source);
 	cr_assert_eq(ret, 0);
 
 	mr_key = fi_mr_key(rem_mr);
@@ -184,8 +187,8 @@ void cancel_teardown(void)
 	fi_close(&loc_mr->fid);
 	fi_close(&rem_mr->fid);
 
-	free(target);
-	free(source);
+	free(target_base);
+	free(source_base);
 
 	ret = fi_close(&ep[0]->fid);
 	cr_assert(!ret, "failure in closing ep.");

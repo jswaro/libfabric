@@ -82,8 +82,8 @@ const char *api_cdm_id[NUMEPS] = { "5000", "5001" };
 struct fi_info *hints[NUMEPS];
 
 #define BUF_SZ (1<<20)
-char *target;
-char *source;
+char *target, *target_base;
+char *source, *source_base;
 char *uc_target;
 char *uc_source;
 struct fid_mr *rem_mr[NUMEPS], *loc_mr[NUMEPS];
@@ -118,11 +118,13 @@ void rdm_api_setup_ep(void)
 	cq_attr.size = 1024;
 	cq_attr.wait_obj = 0;
 
-	target = malloc(BUF_SZ * 3); /* 3x BUF_SZ for multi recv testing */
-	assert(target);
+	target_base = malloc(GNIT_ALIGN_LEN(BUF_SZ * 3)); /* 3x BUF_SZ for multi recv testing */
+	assert(target_base);
+	target = GNIT_ALIGN_BUFFER(char *, target_base);
 
-	source = malloc(BUF_SZ);
-	assert(source);
+	source_base = malloc(GNIT_ALIGN_LEN(BUF_SZ));
+	assert(source_base);
+	source = GNIT_ALIGN_BUFFER(char *, source_base);
 
 	uc_target = malloc(BUF_SZ);
 	assert(uc_target);
@@ -195,12 +197,15 @@ void rdm_api_setup_ep(void)
 	}
 
 	for (i = 0; i < NUMEPS; i++) {
+		int target_requested_key = (gnit_use_scalable) ? (i * 2) : 0;
+		int source_requested_key = (gnit_use_scalable) ? (i * 2) + 1 : 0;
+
 		ret = fi_mr_reg(dom[i], target, 3 * BUF_SZ,
-				FI_REMOTE_WRITE, 0, 0, 0, rem_mr + i, &target);
+				FI_REMOTE_WRITE, 0, target_requested_key, 0, rem_mr + i, &target);
 		cr_assert_eq(ret, 0);
 
 		ret = fi_mr_reg(dom[i], source, BUF_SZ,
-				FI_REMOTE_WRITE, 0, 0, 0, loc_mr + i, &source);
+				FI_REMOTE_WRITE, 0, source_requested_key, 0, loc_mr + i, &source);
 		cr_assert_eq(ret, 0);
 
 		mr_key[i] = fi_mr_key(rem_mr[i]);
@@ -218,8 +223,9 @@ void rdm_api_setup(void)
 		hints[i]->domain_attr->cq_data_size = NUMEPS * 2;
 		hints[i]->domain_attr->data_progress = FI_PROGRESS_AUTO;
 		hints[i]->mode = mode_bits;
-		hints[i]->domain_attr->mr_mode = FI_MR_BASIC;
 		hints[i]->fabric_attr->prov_name = strdup("gni");
+
+		gnit_apply_tunables(hints[i]);
 	}
 }
 
@@ -263,8 +269,8 @@ static void rdm_api_teardown_common(bool unreg)
 
 	free(uc_source);
 	free(uc_target);
-	free(target);
-	free(source);
+	free(target_base);
+	free(source_base);
 
 	ret = fi_close(&fab->fid);
 	cr_assert(!ret, "failure in closing fabric.");
@@ -584,7 +590,7 @@ void api_write_read(int len)
 	rdm_api_init_data(target, len, 0);
 
 	fi_write(ep[0], source, len,
-		 loc_mr[0], gni_addr[1], (uint64_t)target, mr_key[1],
+		 loc_mr[0], gni_addr[1], REM_ADDR(target, target), mr_key[1],
 		 target);
 
 	while ((ret = fi_cq_read(msg_cq[0], &cqe, 1)) == -FI_EAGAIN)
@@ -606,7 +612,7 @@ void api_write_read(int len)
 	}
 
 	fi_read(ep[0], source, len,
-		loc_mr[0], gni_addr[1], (uint64_t)target, mr_key[1],
+		loc_mr[0], gni_addr[1], REM_ADDR(target, target), mr_key[1],
 		(void *)READ_CTX);
 
 	while ((ret = fi_cq_read(msg_cq[0], &cqe, 1)) == -FI_EAGAIN)
@@ -690,7 +696,7 @@ void api_do_read_buf(void)
 
 	/* cause a chained transaction */
 	sz = fi_read(ep[0], source+6, len,
-		     loc_mr[0], gni_addr[1], (uint64_t)target+6, mr_key[1],
+		     loc_mr[0], gni_addr[1], REM_ADDR(target, target+6), mr_key[1],
 		     (void *)READ_CTX);
 	cr_assert_eq(sz, 0);
 
@@ -760,8 +766,9 @@ void do_atomic_write_fetch(void)
 	/* u64 */
 	*((uint64_t *)source) = SOURCE_DATA;
 	*((uint64_t *)target) = TARGET_DATA;
+
 	sz = fi_atomic(ep[0], source, 1,
-		       loc_mr[0], gni_addr[1], (uint64_t)target, mr_key[1],
+		       loc_mr[0], gni_addr[1], REM_ADDR(target, target), mr_key[1],
 		       FI_UINT64, FI_ATOMIC_WRITE, target);
 	cr_assert_eq(sz, 0);
 
@@ -788,7 +795,7 @@ void do_atomic_write_fetch(void)
 	*((uint64_t *)source) = FETCH_SOURCE_DATA;
 	*((uint64_t *)target) = TARGET_DATA;
 	sz = fi_fetch_atomic(ep[0], &operand, 1, NULL,
-			     source, loc_mr[0], gni_addr[1], (uint64_t)target,
+			     source, loc_mr[0], gni_addr[1], REM_ADDR(target, target),
 			     mr_key[1], FI_UINT64, FI_ATOMIC_READ, target);
 	cr_assert_eq(sz, 0);
 

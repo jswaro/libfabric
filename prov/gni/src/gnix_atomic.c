@@ -511,12 +511,15 @@ ssize_t _gnix_atomic(struct gnix_fid_ep *ep,
 		return -FI_ENOCQ;
 	}
 
-
 	if (!ep || !msg || !msg->msg_iov ||
 	    msg->msg_iov[0].count != 1 ||
 	    msg->iov_count != GNIX_MAX_ATOMIC_IOV_LIMIT ||
-	    !msg->rma_iov || !msg->rma_iov[0].addr)
+	    !msg->rma_iov)
 		return -FI_EINVAL;
+
+
+	GNIX_INFO(FI_LOG_DOMAIN,"here 2....\n");
+
 
 	/*
 	 * see fi_atomic man page
@@ -571,9 +574,10 @@ ssize_t _gnix_atomic(struct gnix_fid_ep *ep,
 		}
 
 		if (!result_desc || !result_desc[0]) {
-			rc = gnix_mr_reg(&ep->domain->domain_fid.fid,
+			rc = _gnix_mr_reg(&ep->domain->domain_fid.fid,
 					 loc_addr, len, FI_READ | FI_WRITE,
-					 0, 0, 0, &auto_mr, NULL);
+					 0, 0, 0, &auto_mr,
+					 NULL, ep->auth_key, PROV_REGISTRATION);
 			if (rc != FI_SUCCESS) {
 				GNIX_INFO(FI_LOG_EP_DATA,
 					  "Failed to auto-register local buffer: %d\n",

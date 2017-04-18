@@ -49,6 +49,7 @@
 #include <criterion/criterion.h>
 #include "gnix_rdma_headers.h"
 #include "fi_ext_gni.h"
+#include "common.h"
 
 #if 1
 #define dbg_printf(...)
@@ -75,8 +76,8 @@ static struct fi_info *fi[NUMEPS];
 struct fi_info *hints[NUMEPS];
 
 #define BUF_SZ (1<<20)
-char *target;
-char *source;
+char *target, *target_base;
+char *source, *source_base;
 char *uc_target;
 char *uc_source;
 struct fid_mr *rem_mr[NUMEPS], *loc_mr[NUMEPS];
@@ -142,6 +143,7 @@ void api_cntr_setup(void)
 		hints[i]->domain_attr->data_progress = FI_PROGRESS_AUTO;
 		hints[i]->mode = mode_bits;
 		hints[i]->fabric_attr->prov_name = strdup("gni");
+		gnit_apply_tunables(hints[i]);
 	}
 
 	/* Get info about fabric services with the provided hints */
@@ -154,11 +156,13 @@ void api_cntr_setup(void)
 	attr.type = FI_AV_MAP;
 	attr.count = NUMEPS;
 
-	target = malloc(BUF_SZ * 3); /* 3x BUF_SZ for multi recv testing */
-	assert(target);
+	target_base = malloc(GNIT_ALIGN_LEN(BUF_SZ * 3)); /* 3x BUF_SZ for multi recv testing */
+	assert(target_base);
+	target = GNIT_ALIGN_BUFFER(char *, target_base);
 
-	source = malloc(BUF_SZ);
-	assert(source);
+	source_base = malloc(GNIT_ALIGN_LEN(BUF_SZ));
+	assert(source_base);
+	source = GNIT_ALIGN_BUFFER(char *, source_base);
 
 	uc_target = malloc(BUF_SZ);
 	assert(uc_target);
@@ -217,13 +221,16 @@ void api_cntr_setup(void)
 
 	}
 
-	for (i = 0; i < NUMEPS; i++) {
+	 for (i = 0; i < NUMEPS; i++) {
+		int target_requested_key = (gnit_use_scalable) ? (i * 2) : 0;
+		int source_requested_key = (gnit_use_scalable) ? (i * 2) + 1 : 0;
+
 		ret = fi_mr_reg(dom[i], target, 3 * BUF_SZ,
-				FI_REMOTE_WRITE, 0, 0, 0, rem_mr + i, &target);
+				FI_REMOTE_WRITE, 0, target_requested_key, 0, rem_mr + i, &target);
 		cr_assert_eq(ret, 0);
 
 		ret = fi_mr_reg(dom[i], source, BUF_SZ,
-				FI_REMOTE_WRITE, 0, 0, 0, loc_mr + i, &source);
+				FI_REMOTE_WRITE, 0, source_requested_key, 0, loc_mr + i, &source);
 		cr_assert_eq(ret, 0);
 
 		mr_key[i] = fi_mr_key(rem_mr[i]);
@@ -261,8 +268,8 @@ static void api_cntr_teardown_common(bool unreg)
 
 	free(uc_source);
 	free(uc_target);
-	free(target);
-	free(source);
+	free(target_base);
+	free(source_base);
 
 	ret = fi_close(&fab->fid);
 	cr_assert(!ret, "failure in closing fabric.");

@@ -532,7 +532,6 @@ __gnix_dom_ops_set_val(struct fid *fid, dom_ops_val_t t, void *val)
 	return FI_SUCCESS;
 }
 
-
 static struct fi_gni_ops_domain gnix_ops_domain = {
 	.set_val = __gnix_dom_ops_set_val,
 	.get_val = __gnix_dom_ops_get_val,
@@ -572,11 +571,14 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 
 	fabric_priv = container_of(fabric, struct gnix_fid_fabric, fab_fid);
 
-#if 0 /* TODO: Enable after 1.5 version update */
+	/* need to check input attribute against supported capabilities */
+	//ret = ofi_check_domain_attr(...args)
+	//if (ret)
+	//	return -FI_EINVAL;
+
 	if (FI_VERSION_LT(fabric->api_version, FI_VERSION(1, 5)) &&
 		(info->domain_attr->auth_keylen || info->domain_attr->auth_key))
 			return -FI_EINVAL;
-#endif
 
 	auth_key = GNIX_GET_AUTH_KEY(info->domain_attr->auth_key,
 			info->domain_attr->auth_keylen);
@@ -586,6 +588,18 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 	GNIX_INFO(FI_LOG_DOMAIN,
 		  "authorization key=%p ptag %u cookie 0x%x\n",
 		  auth_key, auth_key->ptag, auth_key->cookie);
+
+	if (auth_key->mr_mode != FI_MR_UNSPEC &&
+		info->domain_attr->mr_mode != FI_MR_UNSPEC &&
+		auth_key->mr_mode != info->domain_attr->mr_mode)
+	{
+		GNIX_WARN(FI_LOG_DOMAIN, "GNIX provider cannot support multiple "
+			"FI_MR_BASIC and FI_MR_SCALABLE for the same ptag. "
+			"ptag=%d current_mode=%x requested_mode=%x\n",
+			auth_key->ptag,
+			auth_key->mr_mode, info->domain_attr->mr_mode);
+		return -FI_EINVAL;
+	}
 
 	domain = calloc(1, sizeof *domain);
 	if (domain == NULL) {
@@ -669,8 +683,21 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 	domain->mr_iov_limit = info->domain_attr->mr_iov_limit;
 
 	fastlock_init(&domain->cm_nic_lock);
+	domain->mr_mode = (info->domain_attr->mr_mode == FI_MR_UNSPEC) ?
+		GNIX_MR_MODE_DEFAULT : info->domain_attr->mr_mode;
 
-	_gnix_open_cache(domain, GNIX_DEFAULT_CACHE_TYPE);
+	auth_key->mr_mode = domain->mr_mode;
+
+	_gnix_auth_key_enable(auth_key);
+
+	domain->auth_key = auth_key;
+
+	if (domain->mr_mode & (FI_MR_BASIC | FI_MR_VIRT_ADDR)) {
+		_gnix_open_cache(domain, GNIX_DEFAULT_CACHE_TYPE);
+	} else {
+		domain->mr_cache_type = GNIX_MR_TYPE_NONE;
+		_gnix_open_cache(domain, GNIX_MR_TYPE_NONE);
+	}
 
 	*dom = &domain->domain_fid;
 	return FI_SUCCESS;

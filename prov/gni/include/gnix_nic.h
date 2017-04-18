@@ -206,6 +206,8 @@ struct gnix_nic {
 	void *irq_mmap_addr;
 	size_t irq_mmap_len;
 	int requires_lock;
+	int mdd_resources_set;
+	int mr_mode;
 };
 
 
@@ -426,7 +428,6 @@ static inline int _gnix_nic_tx_free(struct gnix_nic *nic,
  */
 int gnix_nic_alloc(struct gnix_fid_domain *domain,
 		   struct gnix_nic_attr *attrs,
-		   struct gnix_auth_key *auth_key,
 		   struct gnix_nic **nic_ptr);
 
 /**

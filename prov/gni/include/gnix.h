@@ -417,6 +417,7 @@ struct gnix_fid_domain {
 	int mr_iov_limit;
 	int udreg_reg_limit;
 	struct gnix_auth_key *auth_key;
+	int mr_mode;
 #ifdef HAVE_UDREG
 	udreg_cache_handle_t udreg_cache;
 #endif
@@ -1150,12 +1151,12 @@ int gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 		uint64_t flags, struct fid_mr **mr_o, void *context);
 
 int gnix_mr_regv(struct fid *fid, const struct iovec *iov,
-                 size_t count, uint64_t access,
-                 uint64_t offset, uint64_t requested_key,
-                 uint64_t flags, struct fid_mr **mr, void *context);
+		size_t count, uint64_t access,
+		uint64_t offset, uint64_t requested_key,
+		uint64_t flags, struct fid_mr **mr, void *context);
 
 int gnix_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
-                    uint64_t flags, struct fid_mr **mr);
+		uint64_t flags, struct fid_mr **mr);
 
 int gnix_cntr_open(struct fid_domain *domain, struct fi_cntr_attr *attr,
 		 struct fid_cntr **cntr, void *context);

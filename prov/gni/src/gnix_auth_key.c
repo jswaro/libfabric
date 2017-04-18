@@ -40,6 +40,9 @@
 
 #define GNIX_AUTH_KEY_HASHSEED 0xdeadbeef
 
+extern int gnix_default_user_registration_limit;
+extern int gnix_default_prov_registration_limit;
+
 /* Global data storage for authorization key information */
 gnix_hashtable_t __gnix_auth_key_ht;
 
@@ -233,7 +236,7 @@ _gnix_auth_key_lookup(uint8_t *auth_key, size_t auth_keylen)
 {
 	gnix_ht_key_t key;
 	struct gnix_auth_key *ptr = NULL;
-	struct fi_gni_auth_key *gni_auth_key;
+	struct fi_gni_auth_key *gni_auth_key = NULL;
 
 	if (auth_keylen == GNIX_PROV_DEFAULT_AUTH_KEYLEN) {
 		key = 0;

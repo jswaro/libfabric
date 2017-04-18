@@ -52,6 +52,7 @@
 
 #include <criterion/criterion.h>
 #include "gnix_rdma_headers.h"
+#include "common.h"
 
 #if 1
 #define dbg_printf(...)
@@ -88,10 +89,10 @@ static int peer_src_known = 1;
 #define BUF_RNDZV (1<<14)
 #define IOV_CNT (1<<3)
 
-char *target;
-char *source;
+char *target, *target_base;
+char *source, *source_base;
 struct iovec *src_iov, *dest_iov, *s_iov, *d_iov;
-char *iov_src_buf, *iov_dest_buf;
+char *iov_src_buf, *iov_dest_buf, *iov_src_buf_base, *iov_dest_buf_base;
 char *uc_target;
 char *uc_source;
 struct fid_mr *rem_mr[NUMEPS], *loc_mr[NUMEPS];
@@ -122,16 +123,18 @@ void rdm_sr_setup_common_eps(void)
 	cq_attr.size = 1024;
 	cq_attr.wait_obj = 0;
 
-	target = malloc(BUF_SZ * NUM_MULTIRECVS);
-	assert(target);
+	target_base = malloc(GNIT_ALIGN_LEN(BUF_SZ * NUM_MULTIRECVS));
+	assert(target_base);
+	target = GNIT_ALIGN_BUFFER(char *, target_base);
 
 	dest_iov = malloc(sizeof(struct iovec) * IOV_CNT);
 	assert(dest_iov);
 	d_iov = malloc(sizeof(struct iovec) * IOV_CNT);
 	assert(d_iov);
 
-	source = malloc(BUF_SZ);
-	assert(source);
+	source_base = malloc(GNIT_ALIGN_LEN(BUF_SZ));
+	assert(source_base);
+	source = GNIT_ALIGN_BUFFER(char *, source_base);
 
 	src_iov = malloc(sizeof(struct iovec) * IOV_CNT);
 	assert(src_iov);
@@ -146,11 +149,13 @@ void rdm_sr_setup_common_eps(void)
 		assert(dest_iov[i].iov_base != NULL);
 	}
 
-	iov_src_buf = malloc(BUF_SZ * IOV_CNT);
-	assert(iov_src_buf);
+	iov_src_buf_base = malloc(GNIT_ALIGN_LEN(BUF_SZ * IOV_CNT));
+	assert(iov_src_buf_base);
+	iov_src_buf = GNIT_ALIGN_BUFFER(char *, iov_src_buf_base);
 
-	iov_dest_buf = malloc(BUF_SZ * IOV_CNT);
-	assert(iov_dest_buf);
+	iov_dest_buf_base = malloc(GNIT_ALIGN_LEN(BUF_SZ * IOV_CNT));
+	assert(iov_dest_buf_base);
+	iov_dest_buf = GNIT_ALIGN_BUFFER(char *, iov_dest_buf_base);
 
 	uc_target = malloc(BUF_SZ);
 	assert(uc_target);
@@ -235,26 +240,30 @@ void rdm_sr_setup_common_eps(void)
 
 void rdm_sr_setup_common(void)
 {
-	int ret = 0, i = 0;
+	int ret = 0, i = 0, j = 0;
 
 	rdm_sr_setup_common_eps();
+	int req_key[4];
 
 	for (i = 0; i < NUMEPS; i++) {
+		for (j = 0; j < 4; j++)
+			req_key[j] = (gnit_use_scalable) ? (i * 4) + j : 0;
+
 		ret = fi_mr_reg(dom[i], target, NUM_MULTIRECVS * BUF_SZ,
-				FI_REMOTE_WRITE, 0, 0, 0, rem_mr + i, &target);
+				FI_REMOTE_WRITE, 0, req_key[0], 0, rem_mr + i, &target);
 		cr_assert_eq(ret, 0);
 
 		ret = fi_mr_reg(dom[i], source, BUF_SZ,
-				FI_REMOTE_WRITE, 0, 0, 0, loc_mr + i, &source);
+				FI_REMOTE_WRITE, 0, req_key[1], 0, loc_mr + i, &source);
 		cr_assert_eq(ret, 0);
 
 		ret = fi_mr_reg(dom[i], iov_dest_buf, IOV_CNT * BUF_SZ,
-				FI_REMOTE_WRITE, 0, 0, 0, iov_dest_buf_mr + i,
+				FI_REMOTE_WRITE, 0, req_key[2], 0, iov_dest_buf_mr + i,
 				&iov_dest_buf);
 		cr_assert_eq(ret, 0);
 
 		ret = fi_mr_reg(dom[i], iov_src_buf, IOV_CNT * BUF_SZ,
-				FI_REMOTE_WRITE, 0, 0, 0, iov_src_buf_mr + i,
+				FI_REMOTE_WRITE, 0, req_key[3], 0, iov_src_buf_mr + i,
 				&iov_src_buf);
 		cr_assert_eq(ret, 0);
 
@@ -277,6 +286,8 @@ void rdm_sr_setup(bool is_noreg, enum fi_progress pm)
 	hints->mode = mode_bits;
 	hints->caps = is_noreg ? hints->caps : FI_SOURCE | FI_MSG;
 	hints->fabric_attr->prov_name = strdup("gni");
+
+	gnit_apply_tunables(hints);
 
 	/* Get info about fabric services with the provided hints */
 	for (; i < NUMEPS; i++) {
@@ -406,10 +417,10 @@ static void rdm_sr_teardown_common(bool unreg)
 	free(uc_source);
 	free(uc_target);
 
-	free(iov_src_buf);
-	free(iov_dest_buf);
-	free(target);
-	free(source);
+	free(iov_src_buf_base);
+	free(iov_dest_buf_base);
+	free(target_base);
+	free(source_base);
 
 	for (i = 0; i < IOV_CNT; i++) {
 		free(src_iov[i].iov_base);

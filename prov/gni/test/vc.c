@@ -54,6 +54,7 @@
 
 #include <criterion/criterion.h>
 #include "gnix_rdma_headers.h"
+#include "common.h"
 
 /* Note: Set to ~FI_NOTIFY_FLAGS_ONLY since this was written before api 1.5 */
 static uint64_t mode_bits = ~FI_NOTIFY_FLAGS_ONLY;
@@ -78,7 +79,7 @@ void *ep_name3;
 fi_addr_t gni_addr3;
 
 /* Register a target buffer with both domains for pings. */
-void *target_buf;
+void *target_buf, *target_buf_base;
 int target_len = 64;
 struct fid_mr *rem_mr, *rem_mr3;
 uint64_t mr_key, mr_key3;
@@ -118,6 +119,8 @@ static void vc_setup_common(void)
 	struct gnix_fid_av *gnix_av;
 
 	hints->fabric_attr->prov_name = strdup("gni");
+
+	gnit_apply_tunables(hints);
 
 	ret = fi_getinfo(fi_version(), NULL, 0, 0, hints, &fi);
 	cr_assert(!ret, "fi_getinfo");
@@ -358,15 +361,19 @@ static void vc_conn_ping_setup(void)
 	cr_assert(!ret, "fi_enable");
 
 	/* Register target buffer for pings. */
-	target_buf = malloc(target_len);
+	target_buf_base = malloc(GNIT_ALIGN_LEN(target_len));
+	assert(target_buf_base);
+	target_buf = GNIT_ALIGN_BUFFER(void *, target_buf_base);
 
 	ret = fi_mr_reg(dom, target_buf, sizeof(target_buf),
-			FI_REMOTE_WRITE, 0, 0, 0, &rem_mr, &target_buf);
+			FI_REMOTE_WRITE, 0, ((gnit_use_scalable) ? 1 : 0),
+			0, &rem_mr, &target_buf);
 	cr_assert_eq(ret, 0);
 	mr_key = fi_mr_key(rem_mr);
 
 	ret = fi_mr_reg(dom3, target_buf, sizeof(target_buf),
-			FI_REMOTE_WRITE, 0, 0, 0, &rem_mr3, &target_buf);
+			FI_REMOTE_WRITE, 0, ((gnit_use_scalable) ? 2 : 0),
+			0, &rem_mr3, &target_buf);
 	cr_assert_eq(ret, 0);
 	mr_key3 = fi_mr_key(rem_mr3);
 
@@ -410,7 +417,7 @@ void vc_conn_ping_teardown(void)
 	ret = fi_close(&rem_mr->fid);
 	cr_assert(!ret, "failure in closing mr.");
 
-	free(target_buf);
+	free(target_buf_base);
 
 	ret = fi_close(&cq3->fid);
 	cr_assert(!ret, "failure in closing cq3.");

@@ -32,6 +32,71 @@
 
 #include "common.h"
 
+#include <stdio.h>
+
+#define ENV_DEFAULT_GNITEST_USE_SCALABLE 0
+#define ENV_DEFAULT_GNITEST_PRINT_TUNABLES 0
+
+struct gnitest_tunable {
+	char *name;
+	int *value;
+	int default_value;
+};
+
+static int tunables_printed;
+
+#define DECLARE_TUNABLE(name) int name
+#define GNITEST_TUNABLE(var, ptr, default_val) \
+	[var] = { \
+		.name = STRINGIFY(var), \
+		.value = ptr, \
+		.default_value = default_val, \
+	}
+
+DECLARE_TUNABLE(gnit_use_scalable);
+DECLARE_TUNABLE(gnit_print_tunables);
+
+struct gnitest_tunable tunables[MAX_GNITEST_TUNABLES] = {
+	GNITEST_TUNABLE(GNITEST_USE_FI_MR_SCALABLE,
+		&gnit_use_scalable, ENV_DEFAULT_GNITEST_USE_SCALABLE),
+	GNITEST_TUNABLE(GNITEST_PRINT_TUNABLES,
+		&gnit_print_tunables, ENV_DEFAULT_GNITEST_PRINT_TUNABLES),
+};
+
+static
+void read_int_tunable(char *name, int *variable, int default_value)
+{
+	char *env;
+
+	env = getenv(name);
+	if (env)
+		*variable = atoi(env);
+	else
+		*variable = default_value;
+}
+
+__attribute__((constructor))
+void _gnitest_constructor(void)
+{
+	int i;
+
+	for (i = 0; i < MAX_GNITEST_TUNABLES; i++)
+		read_int_tunable(tunables[i].name, tunables[i].value, tunables[i].default_value);
+}
+
+ReportHook(PRE_ALL)(struct criterion_test_set *test_set)
+{
+	int i;
+
+	if (gnit_print_tunables && !tunables_printed) {
+		for (i = 0; i < MAX_GNITEST_TUNABLES; i++)
+			fprintf(stderr, "%s=%d\n", tunables[i].name, *tunables[i].value);
+
+		tunables_printed = !tunables_printed;
+	}
+}
+
+
 void calculate_time_difference(struct timeval *start, struct timeval *end,
 		int *secs_out, int *usec_out)
 {
@@ -72,3 +137,15 @@ int dump_cq_error(struct fid_cq *cq, void *context, uint64_t flags)
 
 	return 0;
 }
+
+int gnit_apply_tunables(struct fi_info *hints)
+{
+	if (gnit_use_scalable)
+		hints->domain_attr->mr_mode = FI_MR_MMU_NOTIFY;
+	else
+		hints->domain_attr->mr_mode = FI_MR_BASIC;
+
+	return FI_SUCCESS;
+}
+
+

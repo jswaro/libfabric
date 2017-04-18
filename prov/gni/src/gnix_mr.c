@@ -43,6 +43,7 @@
 /* forward declarations */
 
 static int fi_gnix_mr_close(fid_t fid);
+static int fi_gnix_mr_control(struct fid *fid, int command, void *arg);
 
 /* global declarations */
 /* memory registration operations */
@@ -50,7 +51,7 @@ static struct fi_ops fi_gnix_mr_ops = {
 	.size = sizeof(struct fi_ops),
 	.close = fi_gnix_mr_close,
 	.bind = fi_no_bind,
-	.control = fi_no_control,
+	.control = fi_gnix_mr_control,
 	.ops_open = fi_no_ops_open,
 };
 
@@ -70,6 +71,23 @@ static inline int64_t __sign_extend(
 
 	return r;
 }
+#include "gnix_priv.h"
+static inline void __print_mhdl(gni_mem_handle_t *mhdl)
+{
+	GNIX_INFO(FI_LOG_DOMAIN, "PRINT_MHDL:\n"
+		"va=%016llx\n"
+		"mdh=%d\n"
+		"npages=%d\n"
+		"pgsize=%d\n"
+		"flags=%08llx\n"
+		"crc=%08llx\n",
+		GNI_MEMHNDL_GET_VA((*mhdl)),
+		GNI_MEMHNDL_GET_MDH((*mhdl)),
+		mhdl->qword2 & GNI_MEMHNDL_NPGS_MASK,
+		(mhdl->qword2 >> 28) & GNI_MEMHNDL_PSIZE_MASK,
+		GNI_MEMHNDL_GET_FLAGS((*mhdl)),
+		mhdl->qword2 >> 56);
+}
 
 /**
  * Converts a key to a gni memory handle without calculating crc
@@ -87,15 +105,32 @@ void _gnix_convert_key_to_mhdl_no_crc(
 	va = (uint64_t) __sign_extend(va << GNIX_MR_PAGE_SHIFT,
 		GNIX_MR_VA_BITS);
 
-	if (key->flags & GNIX_MR_FLAG_READONLY)
-		flags |= GNI_MEMHNDL_ATTR_READONLY;
+	flags = (key->flags & GNIX_MR_FLAG_READONLY) ?
+		GNI_MEMHNDL_ATTR_READONLY : 0;
 
 	GNI_MEMHNDL_INIT((*mhdl));
-	GNI_MEMHNDL_SET_VA((*mhdl), va);
-	GNI_MEMHNDL_SET_MDH((*mhdl), key->mdd);
-	GNI_MEMHNDL_SET_NPAGES((*mhdl), GNI_MEMHNDL_NPGS_MASK);
-	GNI_MEMHNDL_SET_FLAGS((*mhdl), flags);
 	GNI_MEMHNDL_SET_PAGESIZE((*mhdl), GNIX_MR_PAGE_SHIFT);
+	GNI_MEMHNDL_SET_NPAGES((*mhdl), GNI_MEMHNDL_NPGS_MASK);
+
+	if (key->flags & GNIX_MR_FLAG_BASIC_REG) {
+		va = key->pfn;
+		va = (uint64_t) __sign_extend(va << GNIX_MR_PAGE_SHIFT,
+			GNIX_MR_VA_BITS);
+
+		GNI_MEMHNDL_SET_VA((*mhdl), va);
+		GNI_MEMHNDL_SET_MDH((*mhdl), key->mdd);
+	} else {
+		GNI_MEMHNDL_SET_MDH((*mhdl), key->value);
+		flags |= GNI_MEMHNDL_ATTR_VMDH;
+	}
+	GNI_MEMHNDL_SET_FLAGS((*mhdl), flags);
+	GNIX_INFO(FI_LOG_DOMAIN, "k2m: "
+		"pfn=%llu mdd=%llu format=%llu flags=%llx padding=%lld "
+		"value=%016llX sizeof=%d\n"
+		"mdd=%016llX:%016llX\n",
+		key->pfn, key->mdd, key->format, key->flags, key->padding,
+		key->value, sizeof(gnix_mr_key_t), mhdl->qword1, mhdl->qword2);
+	__print_mhdl(mhdl);
 }
 
 /**
@@ -122,12 +157,27 @@ void _gnix_convert_key_to_mhdl(
 uint64_t _gnix_convert_mhdl_to_key(gni_mem_handle_t *mhdl)
 {
 	gnix_mr_key_t key = {{{0}}};
+	int flags = GNI_MEMHNDL_GET_FLAGS((*mhdl));
+
+	__print_mhdl(mhdl);
+
+	/* VMDH handles do not have an address set */
+	if (flags & GNI_MEMHNDL_ATTR_VMDH)
+		return GNI_MEMHNDL_GET_MDH((*mhdl));
+
 	key.pfn = GNI_MEMHNDL_GET_VA((*mhdl)) >> GNIX_MR_PAGE_SHIFT;
 	key.mdd = GNI_MEMHNDL_GET_MDH((*mhdl));
 	//key->format = GNI_MEMHNDL_NEW_FRMT((*mhdl));
-	key.flags = 0;
-	if (GNI_MEMHNDL_GET_FLAGS((*mhdl)) & GNI_MEMHNDL_FLAG_READONLY)
-		key.flags |= GNIX_MR_FLAG_READONLY;
+	key.flags = GNIX_MR_FLAG_BASIC_REG;
+
+	key.flags |= (flags & GNI_MEMHNDL_FLAG_READONLY) ?
+		GNIX_MR_FLAG_READONLY : 0;
+
+	GNIX_INFO(FI_LOG_DOMAIN, "m2k: "
+		"pfn=%llu mdd=%llu format=%llu flags=%llx padding=%lld value=%016llX\n"
+		"mhdl=%016llX:%016llX\n",
+		key.pfn, key.mdd, key.format, key.flags, key.padding, key.value,
+		mhdl->qword1, mhdl->qword2);
 
 	return key.value;
 }
@@ -158,11 +208,12 @@ static inline uint64_t __calculate_length(
 	return pages * pagesize;
 }
 
-static int __mr_reg(struct fid *fid, const void *buf, size_t len,
+int _gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 			  uint64_t access, uint64_t offset,
 			  uint64_t requested_key, uint64_t flags,
 			  struct fid_mr **mr_o, void *context,
-			  struct gnix_auth_key *auth_key)
+			  struct gnix_auth_key *auth_key,
+			  int reserved)
 {
 	struct gnix_fid_mem_desc *mr = NULL;
 	struct gnix_fid_domain *domain;
@@ -175,10 +226,13 @@ static int __mr_reg(struct fid *fid, const void *buf, size_t len,
 			.flags = flags,
 			.context = context,
 			.auth_key = auth_key,
+			.reserved = reserved,
 	};
 	struct gnix_mr_cache_info *info;
 
 	GNIX_TRACE(FI_LOG_MR, "\n");
+
+	GNIX_INFO(FI_LOG_MR, "reg: buf=%p len=%llu\n", buf, len);
 
 	/* Flags are reserved for future use and must be 0. */
 	if (unlikely(flags))
@@ -196,6 +250,17 @@ static int __mr_reg(struct fid *fid, const void *buf, size_t len,
 		return -FI_EINVAL;
 
 	domain = container_of(fid, struct gnix_fid_domain, domain_fid.fid);
+
+	if (auth_key->mr_mode == FI_MR_SCALABLE && !reserved &&
+		requested_key >= auth_key->attr.user_key_limit)
+		return -FI_EKEYREJECTED;
+
+	if (auth_key->mr_mode == FI_MR_SCALABLE && !reserved &&
+		requested_key < auth_key->attr.user_key_limit) {
+		rc = _gnix_test_and_set_bit(&auth_key->user, requested_key);
+		if (rc)
+			return -FI_ENOKEY;
+	}
 
 	info = &domain->mr_cache_info[auth_key->ptag];
 
@@ -236,6 +301,7 @@ static int __mr_reg(struct fid *fid, const void *buf, size_t len,
 	/* setup internal key structure */
 	mr->mr_fid.key = _gnix_convert_mhdl_to_key(&mr->mem_hndl);
 	mr->auth_key = auth_key;
+	GNIX_INFO(FI_LOG_DOMAIN, "pk: %016llX\n", mr->mr_fid.key);
 
 	_gnix_ref_get(mr->domain);
 
@@ -322,13 +388,96 @@ DIRECT_FN int gnix_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
 	}
 
 	if (attr->iov_count == 1)
-		return __mr_reg(fid, attr->mr_iov[0].iov_base,
+		return _gnix_mr_reg(fid, attr->mr_iov[0].iov_base,
 			attr->mr_iov[0].iov_len, attr->access, attr->offset,
-			attr->requested_key, flags, mr,
-			attr->context, auth_key);
+			attr->requested_key, flags, mr, attr->context,
+			auth_key, USER_REGISTRATION);
 
 	/* regv limited to one iov at this time */
 	return -FI_EOPNOTSUPP;
+}
+
+static int __gnix_mr_refresh(struct gnix_fid_mem_desc *desc, uint64_t addr, uint64_t len)
+{
+		gni_return_t grc;
+
+
+	fastlock_acquire(&desc->nic->lock);
+	GNIX_INFO(FI_LOG_MR, "hndl=%p addr=%p len=%d cq=%p flags=%x vmdh_index=%d mem_hndl=%p\n",
+		desc->nic->gni_nic_hndl, addr, len, NULL, GNI_MEM_UPDATE_REGION,
+		desc->mr_fid.key, &desc->mem_hndl);
+	grc = GNI_MemRegister(desc->nic->gni_nic_hndl, addr,
+		len, NULL, GNI_MEM_UPDATE_REGION,
+		desc->mr_fid.key, &desc->mem_hndl);
+	assert(grc == FI_SUCCESS); /* TODO: handle error case */
+
+	fastlock_release(&desc->nic->lock);
+
+	return (grc != 0) ? -FI_EINVAL : FI_SUCCESS;
+}
+
+static int __gnix_mr_refresh_iov(struct fid *fid, void *arg)
+{
+	struct fi_mr_modify *modify = (struct fi_mr_modify *) arg;
+	int ret = FI_SUCCESS;
+	struct gnix_fid_mem_desc *desc;
+	uint64_t aligned_addr;
+	uint64_t aligned_len;
+	uint64_t addr;
+	uint64_t len;
+	int i;
+
+	GNIX_TRACE(FI_LOG_MR, "\n");
+
+	desc = container_of(fid, struct gnix_fid_mem_desc, mr_fid);
+
+	/* assume that no one is going to attempt to update a MR at the
+		same time that they might try to deregister a mr
+
+	   For the record, that would be REALLY silly application behavior */
+
+	if (!modify->attr.mr_iov || modify->attr.iov_count == 0)
+		return -FI_EINVAL;
+
+	for (i = 0; i < modify->attr.iov_count; i++) {
+		addr = (uint64_t) modify->attr.mr_iov[i].iov_base;
+		len = (uint64_t) modify->attr.mr_iov[i].iov_len;
+
+		aligned_addr = addr & ~0xfff;
+		aligned_len = addr + len - aligned_addr;
+		aligned_len += (((addr + len) & 0xfff) ? (0x1000 - ((addr + len) & 0xfff)) : 0);
+
+		/* this operation is only supported for scalable only TODO: detect*/
+		ret = __gnix_mr_refresh(desc, aligned_addr, aligned_len);
+		if (ret)
+			return ret;
+	}
+
+
+	return FI_SUCCESS;
+}
+
+static int fi_gnix_mr_control(struct fid *fid, int command, void *arg)
+{
+	int ret;
+	struct gnix_fid_mem_desc *desc;
+
+	desc = container_of(fid, struct gnix_fid_mem_desc, mr_fid);
+	if (desc->mr_fid.fid.fclass != FI_CLASS_MR) {
+		GNIX_WARN(FI_LOG_DOMAIN, "invalid fid\n");
+		return -FI_EINVAL;
+	}
+
+	switch(command) {
+	case FI_REFRESH:
+		ret = __gnix_mr_refresh_iov(fid, arg);
+		break;
+	default:
+		ret = -FI_EOPNOTSUPP;
+		break;
+	}
+
+	return ret;
 }
 
 /**
@@ -390,6 +539,7 @@ static inline void *__gnix_generic_register(
 	struct gnix_nic_attr nic_attr = {0};
 	gni_return_t grc = GNI_RC_SUCCESS;
 	int rc;
+	struct gnix_auth_key *info;
 
 	pthread_mutex_lock(&gnix_nic_list_lock);
 
@@ -419,9 +569,24 @@ static inline void *__gnix_generic_register(
 		}
 		_gnix_ref_get(nic);
 		pthread_mutex_unlock(&gnix_nic_list_lock);
-        }
+	}
 
 	COND_ACQUIRE(nic->requires_lock, &nic->lock);
+	if (nic->mr_mode == FI_MR_SCALABLE && !nic->mdd_resources_set) {
+		info = auth_key;
+		assert(info);
+
+		grc = GNI_SetMddResources(nic->gni_nic_hndl,
+				info->attr.prov_key_limit + info->attr.user_key_limit);
+		assert(grc == GNI_RC_SUCCESS);
+
+		nic->mdd_resources_set = 1;
+	}
+
+	GNIX_INFO(FI_LOG_MR, "Params: hndl=%p addr=%p length=%d dst_cq_hndl=%p flags=%08x vmdh_index=%d mem_hndl=%p\n",
+		nic->gni_nic_hndl, address, length, dst_cq_hndl, flags, vmdh_index, &md->mem_hndl);
+
+
 	grc = GNI_MemRegister(nic->gni_nic_hndl, (uint64_t) address,
 				  length,	dst_cq_hndl, flags,
 				  vmdh_index, &md->mem_hndl);
@@ -430,6 +595,8 @@ static inline void *__gnix_generic_register(
 	if (unlikely(grc != GNI_RC_SUCCESS)) {
 		GNIX_INFO(FI_LOG_MR, "failed to register memory with uGNI, "
 			  "ret=%s\n", gni_err_str[grc]);
+		GNIX_INFO(FI_LOG_MR, "Params: hndl=%p addr=%p length=%d dst_cq_hndl=%p flags=%x vmdh_index=%d mem_hndl=%p\n",
+			nic->gni_nic_hndl, address, length, dst_cq_hndl, flags, vmdh_index, &md->mem_hndl);
 		_gnix_ref_put(nic);
 
 		return NULL;
@@ -464,8 +631,14 @@ static void *__gnix_register_region(
 	else
 		flags |= GNI_MEM_READ_ONLY;
 
+	if (domain->mr_mode == FI_MR_SCALABLE) {
+		flags |= GNI_MEM_USE_VMDH | GNI_MEM_RESERVE_REGION;
+		vmdh_index = fi_reg_context->requested_key;
+	}
+
 	GNIX_DEBUG(FI_LOG_MR, "addr %p len %d flags 0x%x\n", address, length,
-		   flags);
+		flags);
+
 	return __gnix_generic_register(domain, md, address, length, dst_cq_hndl,
 			flags, vmdh_index, fi_reg_context->auth_key);
 }
@@ -563,7 +736,7 @@ uint32_t __udreg_deregister(void *registration, void *context)
 /* Called via dreg when a cache is destroyed. */
 void __udreg_cache_destructor(void *context)
 {
-    /*  Nothing needed here. */
+	/*  Nothing needed here. */
 }
 
 static int __udreg_init(struct gnix_fid_domain *domain,

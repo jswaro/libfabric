@@ -22,6 +22,10 @@ support for common atomic operations and optimized collectives.
 The GNI provider runs on Cray XC systems running CLE 5.2 UP04 or higher
 using gcc version 4.9 or higher.
 
+When using the FI_MR_SCALABLE memory mode, applications must make
+registration requests on 4K page alignment boundaries. Any other value
+will result in a return value of -FI_EINVAL.
+
 # SUPPORTED FEATURES
 
 The GNI provider supports the following features defined for the
@@ -35,7 +39,8 @@ libfabric API:
   address vector types.
 
 *Memory registration modes*
-: The provider implements the *FI_MR_BASIC* memory registration mode.
+: The provider implements the *FI_MR_BASIC* and *FI_MR_SCALABLE* memory
+  registration modes.
 
 *Data transfer operations*
 : The following data transfer interfaces are supported for all
@@ -109,14 +114,27 @@ All *FI_TAGGED* operations are supported except `fi_tinjectdata`.
 
 # GNI EXTENSIONS
 
-The GNI provider exposes low-level tuning parameters via a domain and
-endpoint `fi_open_ops` interface named *FI_GNI_DOMAIN_OPS_1* and
-*FI_GNI_EP_OPS_1*.  The flags parameter is currently ignored.  The
-fi_open_ops function takes a `struct fi_gni_ops_domain` or a
-`struct fi_gni_ops_ep` parameter respectively and populates it with
-the following:
+The GNI provider exposes low-level tuning parameters via domain, endpoint
+and fabric level `fi_open_ops` interfaces.
+The domain extensions have been named *FI_GNI_DOMAIN_OPS_1*. The endpoint
+extensions have been named *FI_GNI_EP_OPS_1*. The fabric extensions have
+been named *FI_GNI_FABRIC_OPS_1* and *FI_GNI_FABRIC_OPS_2*.
+The flags parameter is currently ignored.  The fi_open_ops function takes
+a `struct fi_gni_ops_domain` or a `struct fi_gni_ops_ep` parameter
+respectively and populates it with the following:
 
 ```c
+struct fi_gni_ops_fab {
+    int (*set_val)(struct fid *fid, fab_ops_val_t t, void *val);
+    int (*get_val)(struct fid *fid, fab_ops_val_t t, void *val);
+};
+
+struct fi_gni_auth_key_ops_fab {
+    int (*initialize_auth_key)(uint8_t *auth_key, size_t auth_keylen, struct gnix_auth_key_attr *attr);
+    int (*set_val)(uint8_t *auth_key, size_t auth_keylen, gnix_auth_key_opt_t opt, void *val);
+    int (*get_val)(uint8_t *auth_key, size_t auth_keylen, gnix_auth_key_opt_t opt, void *val);
+};
+
 struct fi_gni_ops_domain {
 	int (*set_val)(struct fid *fid, dom_ops_val_t t, void *val);
 	int (*get_val)(struct fid *fid, dom_ops_val_t t, void *val);
@@ -136,8 +154,47 @@ struct fi_gni_ops_ep {
 ```
 
 The `set_val` function sets the value of a given parameter; the
-`get_val` function returns the current value.  For
-*FI_GNI_DOMAIN_OPS_1*, the currently supported values are:
+`get_val` function returns the current value.
+
+For *FI_GNI_FABRIC_OPS_1*, the currently supported values are:
+
+*GNI_WAIT_THREAD_SLEEP*
+: Time in seconds for which the progress thread will sleep between
+periods of inactivity.
+
+*GNI_DEALLOC_AKI_ON_FABRIC_CLOSE*
+: If set to non-zero value, this assumes the user will not attempt
+to open another instance of a GNI fabric after the last fabric is
+closed. If set to zero, the user may open another GNI fabric after
+the last fabric is closed. If set to a non-zero value, a warning
+may be raised by the GNI provider if the user attempts to open a
+fabric after the last fabric is closed.
+
+*GNI_DEFAULT_USER_REGISTRATION_LIMIT*
+: The number of user registrations that an authorization key is limited
+to when using the FI_MR_SCALABLE memory mode, if not specified by
+the user during init.
+
+*GNI_DEFAULT_PROV_REGISTRATION_LIMIT*
+: The number of provider registration that an authorization key is
+limited to when using the FI_MR_SCALABLE memory mode, if not specified
+by the user during init.
+
+For *FI_GNI_FABRIC_OPS_2*, the currently supported values are:
+
+*GNIX_USER_KEY_LIMIT*
+: The number of user registrations that an authorization key is limited
+to when using the FI_MR_SCALABLE memory mode. This may only be set prior
+to the first use of an authorization key in the initialization of a
+domain, endpoint, or memory registration.
+
+*GNIX_PROV_KEY_LIMIT*
+: The number of provider registrations that an authorization key is
+limited to when using the FI_MR_SCALABLE memory mode. This may only be
+set prior to the first use of an authorization key in the initialization
+of a domain, endpoint, or memory registration.
+
+For *FI_GNI_DOMAIN_OPS_1*, the currently supported values are:
 
 *GNI_MSG_RENDEZVOUS_THRESHOLD*
 : Threshold message size at which a rendezvous protocol is used for
@@ -245,6 +302,9 @@ but adds the following parameter:
 GNIX_FAB_RQ_NAMO_FAX (Fetch AND and XOR) and GNIX_FAB_RQ_NAMO_FAX_S
  (Fetch AND and XOR 32 bit).
 
+The `initialize_auth_key` function allows the user to initialize the user and
+provider registration limits for an authorization key prior to its first use.
+
 #NOTES
 
 The default address format is FI_ADDR_GNI. This is the only address format
@@ -263,6 +323,33 @@ err_data member will contain the source address information in the FI_ADDR_GNI
 address format. In order to populate the remote peer's address vector
 with this mechanism, the application must call fi_cq_readerr to get the
 source address followed by fi_av_insert on the populated err_data member.
+
+The GNI provider can use a maximum of 4K memory registrations per *node* when using FI_MR_SCALABLE.
+Please consider this limitation when placing multiple processes on each node.
+
+The GNI provider sets the default user registration limit to 192 when using FI_MR_SCALABLE,
+and sets the default provider registration limit to 64. These limits are directly associated
+with the authorization key in use when creating the registration. If no authorization key
+is used when creating the registration, the registration is automatically bound to the same
+authorization key as the domain to which the registration belongs.
+
+When using FI_MR_SCALABLE, the provider may make registrations which consume some of the
+registrations set aside for the provider. This impacts the performance of FI_LOCAL_MR, which
+relies on provider-created registrations.
+
+All memory registrations are associated with an authorization key, whether it is the provider
+default key(keylen=0) or a user-acquired key (key!=NULL, keylen!=0). Each authorization
+key is associated with a unique GNI network key. A GNI network key can only accomodate a single
+memory mode, whether it is FI_MR_BASIC, or FI_MR_SCALABLE. If a user attempts to open multiple
+domains using different memory modes with the same authorization key, the provider will return
+-FI_EINVAL.
+
+When using FI_MR_SCALABLE, the user may request keys beginning at 0, and ending at the
+user registration limit for a given authorization key.
+
+When using FI_MR_SCALABLE and fi_mr_refresh(), only refresh the updated pages, not the entire
+registration. If the entire registration is refreshed and some of the pages are not mapped,
+then refresh will return -FI_EFAULT.
 
 # SEE ALSO
 

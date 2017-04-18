@@ -63,6 +63,32 @@
 #include "gnix_wait.h"
 #include "gnix_xpmem.h"
 
+/* check if only one bit of a set is enabled, when one is required */
+#define IS_EXCLUSIVE(x) \
+	((x) && !((x) & ((x)-1)))
+
+/* optional basic bits */
+#define GNIX_MR_BASIC_OPT \
+	(FI_MR_LOCAL)
+
+/* optional scalable bits */
+#define GNIX_MR_SCALABLE_OPT \
+	(FI_MR_LOCAL)
+
+/* required basic bits */
+#define GNIX_MR_BASIC_REQ \
+	(FI_MR_VIRT_ADDR | FI_MR_ALLOCATED | FI_MR_PROV_KEY)
+
+/* required scalable bits */
+#define GNIX_MR_SCALABLE_REQ \
+	(FI_MR_MMU_NOTIFY)
+
+#define GNIX_MR_BASIC_BITS \
+    (GNIX_MR_BASIC_OPT | GNIX_MR_BASIC_REQ)
+
+#define GNIX_MR_SCALABLE_BITS \
+    (GNIX_MR_SCALABLE_OPT | GNIX_MR_SCALABLE_REQ)
+
 const char gnix_fab_name[] = "gni";
 const char gnix_dom_name[] = "/sys/class/gni/kgni0";
 const char gnix_prov_name[] = "gni";
@@ -416,6 +442,7 @@ static int _gnix_ep_getinfo(enum fi_ep_type ep_type, uint32_t version,
 	uint64_t mode = GNIX_FAB_MODES;
 	struct fi_info *gnix_info = NULL;
 	int ret = -FI_ENODATA;
+	int mr_mode;
 
 	GNIX_TRACE(FI_LOG_FABRIC, "\n");
 
@@ -529,6 +556,8 @@ static int _gnix_ep_getinfo(enum fi_ep_type ep_type, uint32_t version,
 		GNIX_DEBUG(FI_LOG_FABRIC, "Passed fabric name check\n");
 
 		if (hints->domain_attr) {
+			mr_mode = hints->domain_attr->mr_mode;
+
 			if (hints->domain_attr->name &&
 			    strncmp(hints->domain_attr->name, gnix_dom_name,
 				    strlen(gnix_dom_name))) {
@@ -546,21 +575,44 @@ static int _gnix_ep_getinfo(enum fi_ep_type ep_type, uint32_t version,
 					hints->domain_attr->data_progress;
 
 
-			switch (hints->domain_attr->mr_mode) {
-			case FI_MR_UNSPEC:
-			case FI_MR_BASIC:
-				if (FI_VERSION_GE(version, FI_VERSION(1, 5))) {
-					hints->domain_attr->mr_mode =
-						OFI_MR_BASIC_MAP;
+			if (FI_VERSION_LT(version, FI_VERSION(1,5))) {
+				switch (mr_mode) {
+				case FI_MR_UNSPEC:
+				case FI_MR_BASIC:
+					mr_mode = FI_MR_BASIC;
+					break;
+				default:
+					goto err;
+					break;
 				}
-				break;
-			case FI_MR_SCALABLE:
-				GNIX_WARN(FI_LOG_FABRIC,
-						  "GNI provider doesn't currently support MR_SCALABLE\n");
-				goto err;
-			default:
-				assert(0);
+			} else {
+				if (mr_mode & FI_MR_VIRT_ADDR) {
+					// FI_MR_BASIC for GNI
+					if (mr_mode & ~GNIX_MR_BASIC_BITS) {
+						GNIX_DEBUG(FI_LOG_FABRIC, "mr mode contains unsupported bits, "
+							"actual=%x supported=%x\n",
+							mr_mode,
+							GNIX_MR_BASIC_BITS);
+						goto err;
+					}
+				} else if (mr_mode != FI_MR_BASIC &&
+					mr_mode != FI_MR_SCALABLE) {
+					// FI_MR_SCALABLE for GNI
+					if (mr_mode & ~GNIX_MR_SCALABLE_BITS) {
+						GNIX_DEBUG(FI_LOG_FABRIC, "mr mode contains unsupported bits, "
+							"actual=%x supported=%x\n",
+							mr_mode,
+							GNIX_MR_SCALABLE_BITS);
+						goto err;
+					}
+				} else if (mr_mode == FI_MR_SCALABLE) {
+					GNIX_DEBUG(FI_LOG_FABRIC, "no support for the original enums");
+					goto err;
+				} else {
+					mr_mode = OFI_MR_BASIC_MAP;
+				}
 			}
+			gnix_info->domain_attr->mr_mode = mr_mode;
 
 			switch (hints->domain_attr->threading) {
 			case FI_THREAD_COMPLETION:
@@ -649,6 +701,9 @@ static int gnix_getinfo(uint32_t version, const char *node, const char *service,
 		info_ptr->next = *info;
 		*info = info_ptr;
 	}
+
+	/* TODO: alter info for specific version */
+	//ofi_alter_info(*info, hints, version);
 
 	return *info ? FI_SUCCESS : -FI_ENODATA;
 }

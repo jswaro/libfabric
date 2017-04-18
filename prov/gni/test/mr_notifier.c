@@ -36,12 +36,15 @@
 #include <sys/mman.h>
 #include "gnix_mr_notifier.h"
 
+#include "common.h"
 #include <criterion/criterion.h>
 
 static struct gnix_mr_notifier *mr_notifier;
 static void mr_notifier_setup(void)
 {
 	int ret;
+
+	SKIP_IF_SCALABLE();
 
 	ret = _gnix_notifier_init();
 	cr_assert(ret == 0, "_gnix_notifier_init failed");

@@ -296,6 +296,9 @@ static int __create_slab(struct gnix_mbox_alloc_handle *handle)
 	char *error;
 	size_t total_size;
 	int ret;
+	int vmdh_index = -1;
+	int flags = GNI_MEM_READWRITE;
+	struct gnix_auth_key *info;
 
 	GNIX_TRACE(FI_LOG_EP_CTRL, "\n");
 
@@ -339,10 +342,34 @@ static int __create_slab(struct gnix_mbox_alloc_handle *handle)
 	}
 
 	COND_ACQUIRE(handle->nic_handle->requires_lock, &handle->nic_handle->lock);
+	if (handle->nic_handle->mr_mode == FI_MR_SCALABLE) {
+		info = _gnix_auth_key_lookup(GNIX_PROV_DEFAULT_AUTH_KEY,
+				GNIX_PROV_DEFAULT_AUTH_KEYLEN);
+		assert(info);
+
+		if (!handle->nic_handle->mdd_resources_set) {
+		/* check to see if the ptag registration limit was set
+		   yet or not -- becomes read-only after success */
+			_gnix_auth_key_enable(info);
+
+			status = GNI_SetMddResources(
+				handle->nic_handle->gni_nic_hndl,
+				info->attr.prov_key_limit + info->attr.user_key_limit);
+			assert(status == GNI_RC_SUCCESS);
+
+			handle->nic_handle->mdd_resources_set = 1;
+		}
+
+		vmdh_index = _gnix_get_next_reserved_key(info);
+		// TODO: handle error condition
+		assert(vmdh_index > 0);
+		flags |= GNI_MEM_USE_VMDH;
+	}
+
 	status = GNI_MemRegister(handle->nic_handle->gni_nic_hndl,
 				 (uint64_t) slab->base, total_size,
 				 handle->cq_handle,
-				 GNI_MEM_READWRITE, -1,
+				 flags, vmdh_index,
 				 &slab->memory_handle);
 	COND_RELEASE(handle->nic_handle->requires_lock, &handle->nic_handle->lock);
 	if (status != GNI_RC_SUCCESS) {

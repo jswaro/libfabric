@@ -52,6 +52,8 @@
 
 #include <criterion/criterion.h>
 #include "gnix_rdma_headers.h"
+#include "common.h"
+
 
 #if 1
 #define dbg_printf(...)
@@ -89,8 +91,8 @@ static struct fi_cntr_attr cntr_attr = {.events = FI_CNTR_EVENTS_COMP,
 					.flags = 0};
 
 #define BUF_SZ (64*1024)
-char *target;
-char *source;
+char *target, *target_base;
+char *source, *source_base;;
 struct fid_mr *rem_mr[NUM_EPS], *loc_mr[NUM_EPS];
 uint64_t mr_key[NUM_EPS];
 
@@ -108,6 +110,8 @@ static inline void cntr_setup_eps(const uint64_t caps)
 	hints->fabric_attr->prov_name = strdup("gni");
 
 	hints->caps = caps;
+
+	gnit_apply_tunables(hints);
 
 	ret = fi_getinfo(fi_version(), NULL, 0, 0, hints, &fi);
 	cr_assert(!ret, "fi_getinfo");
@@ -236,21 +240,30 @@ static inline void cntr_setup_enable_ep(void)
 static inline void cntr_setup_mr(void)
 {
 	int i, ret;
+	int source_key, target_key;
 
-	target = malloc(BUF_SZ);
-	assert(target);
+	source_key = (gnit_use_scalable) ? 1: 0;
+	target_key = (gnit_use_scalable) ? 2: 0;
 
-	source = malloc(BUF_SZ);
-	assert(source);
+	target_base = malloc(GNIT_ALIGN_LEN(BUF_SZ));
+	assert(target_base);
+	target = GNIT_ALIGN_BUFFER(char *, target_base);
+
+	source_base = malloc(GNIT_ALIGN_LEN(BUF_SZ));
+	assert(source_base);
+	source = GNIT_ALIGN_BUFFER(char *, source_base);
 
 	for (i = 0; i < NUM_EPS; i++) {
+		source_key = (gnit_use_scalable) ? (i * 2) + 1: 0;
+		target_key = (gnit_use_scalable) ? (i * 2) + 2: 0;
+
 		ret = fi_mr_reg(dom[i], target, BUF_SZ,
 				FI_REMOTE_READ | FI_REMOTE_WRITE,
-				0, 0, 0, &rem_mr[i], &target);
+				0, target_key, 0, &rem_mr[i], &target);
 		cr_assert_eq(ret, 0);
 
 		ret = fi_mr_reg(dom[i], source, BUF_SZ,	FI_READ | FI_WRITE,
-				0, 0, 0, &loc_mr[i], &source);
+				0, source_key, 0, &loc_mr[i], &source);
 		cr_assert_eq(ret, 0);
 
 		mr_key[i] = fi_mr_key(rem_mr[i]);
@@ -276,8 +289,8 @@ static inline void cntr_teardown_mr(void)
 		fi_close(&rem_mr[i]->fid);
 	}
 
-	free(target);
-	free(source);
+	free(target_base);
+	free(source_base);
 }
 
 static inline void cntr_teardown_eps(void)
@@ -408,7 +421,7 @@ static void do_write(int len)
 	old_r_cnt = fi_cntr_read(read_cntrs[0]);
 
 	sz = fi_write(ep[0], source, len, loc_mr[0], gni_addr[0][1],
-		      (uint64_t)target, mr_key[1], target);
+		      REM_ADDR(target, target), mr_key[1], target);
 	cr_assert_eq(sz, 0);
 
 	do {
@@ -449,7 +462,7 @@ static void do_write_wait(int len)
 
 	for (i = 0; i < iters; i++) {
 		sz = fi_write(ep[0], source, len, loc_mr[0],
-			      gni_addr[0][1], (uint64_t)target, mr_key[1],
+			      gni_addr[0][1], REM_ADDR(target, target), mr_key[1],
 			      target);
 		cr_assert_eq(sz, 0);
 	}
@@ -487,7 +500,7 @@ static void do_read(int len)
 	old_r_cnt = fi_cntr_read(read_cntrs[0]);
 
 	sz = fi_read(ep[0], source, len, loc_mr[0],
-		     gni_addr[0][1], (uint64_t)target, mr_key[1],
+		     gni_addr[0][1], REM_ADDR(target, target), mr_key[1],
 			(void *)READ_CTX);
 	cr_assert_eq(sz, 0);
 
@@ -524,7 +537,7 @@ static void do_read_wait(int len)
 
 	for (i = 0; i < iters; i++) {
 		sz = fi_read(ep[0], source, len, loc_mr[0],
-			     gni_addr[0][1], (uint64_t)target,
+			     gni_addr[0][1], REM_ADDR(target, target),
 			     mr_key[1], (void *)READ_CTX);
 		cr_assert_eq(sz, 0);
 	}
@@ -680,7 +693,7 @@ static void *do_thread_read_wait(void *data)
 	for (i = 0; i < iters; i++) {
 		sz = fi_read(ep[tid], &source[tid*msg_size], msg_size,
 			     loc_mr[tid], gni_addr[tid][0],
-			     (uint64_t)&target[tid*msg_size],
+			     REM_ADDR(target, &target[tid*msg_size]),
 			     mr_key[0], (void *)(READ_CTX+i));
 		cr_assert_eq(sz, 0);
 	}
@@ -744,7 +757,7 @@ static void *do_thread_write_wait(void *data)
 	for (i = 0; i < iters; i++) {
 		sz = fi_write(ep[tid], &source[tid*msg_size], msg_size,
 			      loc_mr[tid], gni_addr[tid][0],
-			      (uint64_t)&target[tid*msg_size],
+			      REM_ADDR(target, &target[tid*msg_size]),
 			      mr_key[0], (void *)(READ_CTX+i));
 		cr_assert_eq(sz, 0);
 	}

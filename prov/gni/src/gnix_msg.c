@@ -214,20 +214,29 @@ static void __gnix_msg_pack_data_from_iov(uint64_t dest, size_t dest_len,
  * but the msg component of the fab request structure would
  * need to be refactored.
  */
-static inline int __gnix_msg_register_iov(struct gnix_fid_domain *dom,
+static inline int __gnix_msg_register_iov(struct gnix_fid_ep *ep,
 					  const struct iovec *iov,
 					  size_t count,
 					  struct gnix_fid_mem_desc **md_vec)
 {
 	int i, ret = FI_SUCCESS;
 	struct fid_mr *auto_mr = NULL;
+	struct gnix_auth_key *auth_key = ep->auth_key;
+	struct gnix_fid_domain *dom = ep->domain;
+	int reserved_key = 0;
+	int using_vmdh = auth_key->mr_mode == FI_MR_SCALABLE;
 
 	for (i = 0; i < count; i++) {
+		if (using_vmdh) {
+			reserved_key = _gnix_get_next_reserved_key(auth_key);
+			assert(reserved_key > 0);
+		}
+
 		ret = gnix_mr_reg(&dom->domain_fid.fid,
 				  iov[i].iov_base,
 				  iov[i].iov_len,
 				  FI_READ | FI_WRITE, 0,
-				  0, 0, &auto_mr,
+				  reserved_key, 0, &auto_mr,
 				  NULL);
 
 		if (ret != FI_SUCCESS) {
@@ -237,7 +246,14 @@ static inline int __gnix_msg_register_iov(struct gnix_fid_domain *dom,
 				   " local buffer: %s\n",
 				   fi_strerror(-ret));
 
+			if (using_vmdh)
+				_gnix_release_reserved_key(auth_key,
+					reserved_key);
+
 			for (i--; i >= 0; i--) {
+				if (using_vmdh)
+					_gnix_release_reserved_key(auth_key,
+						fi_mr_key(&md_vec[i]->mr_fid));
 				fi_close(&md_vec[i]->mr_fid.fid);
 			}
 
@@ -818,6 +834,13 @@ static int __gnix_rndzv_req_complete(void *arg, gni_return_t tx_status)
 	GNIX_INFO(FI_LOG_EP_DATA, "Completed RNDZV GET, req: %p\n", req);
 
 	if (req->msg.recv_flags & FI_LOCAL_MR) {
+		if (req->gnix_ep->domain->mr_mode == FI_MR_SCALABLE) {
+			struct gnix_auth_key *info = req->gnix_ep->auth_key;
+			assert(info);
+
+			_gnix_release_reserved_key(info, fi_mr_key(&req->msg.recv_md[0]->mr_fid));
+		}
+
 		GNIX_INFO(FI_LOG_EP_DATA, "freeing auto-reg MR: %p\n",
 			  req->msg.recv_md[0]);
 		fi_close(&req->msg.recv_md[0]->mr_fid.fid);
@@ -886,7 +909,18 @@ static int __gnix_rndzv_iov_req_complete(void *arg, gni_return_t tx_status)
 			}
 		} else {
 			if (req->msg.recv_flags & FI_LOCAL_MR) {
+				struct gnix_auth_key *info = NULL;
+
+				if (req->gnix_ep->domain->mr_mode == FI_MR_SCALABLE) {
+					info = req->gnix_ep->auth_key;
+					assert(info);
+				}
+
 				for (i = 0; i < req->msg.recv_iov_cnt; i++) {
+					if (info) {
+						_gnix_release_reserved_key(info, fi_mr_key(&req->msg.recv_md[i]->mr_fid));
+					}
+
 					GNIX_INFO(FI_LOG_EP_DATA, "freeing auto"
 						  "-reg MR: %p\n",
 						  req->msg.recv_md[i]);
@@ -1022,6 +1056,8 @@ static int __gnix_rndzv_req(void *arg)
 	int inject_err = _gnix_req_inject_err(req);
 	int head_off, head_len, tail_len;
 	void *tail_data = NULL;
+	int requested_key = 0;
+
 
 	GNIX_TRACE(FI_LOG_EP_DATA, "\n");
 
@@ -1029,11 +1065,24 @@ static int __gnix_rndzv_req(void *arg)
 		return  __gnix_rndzv_req_xpmem(req);
 
 	if (!req->msg.recv_md[0]) {
-		rc = gnix_mr_reg(&ep->domain->domain_fid.fid,
-				 (void *)req->msg.recv_info[0].recv_addr,
-				 req->msg.recv_info[0].recv_len,
-				 FI_READ | FI_WRITE, 0, 0, 0, &auto_mr, NULL);
+		struct gnix_auth_key *info = NULL;
+		if (ep->domain->mr_mode == FI_MR_SCALABLE) {
+			info = ep->auth_key;
+			assert(info);
+
+			requested_key =	_gnix_get_next_reserved_key(info);
+			assert(requested_key > 0);
+		}
+
+		rc = _gnix_mr_reg(&ep->domain->domain_fid.fid,
+				  (void *)req->msg.recv_info[0].recv_addr,
+				  req->msg.recv_info[0].recv_len,
+				  FI_READ | FI_WRITE, 0, requested_key, 0,
+				  &auto_mr, NULL, ep->auth_key, PROV_REGISTRATION);
 		if (rc != FI_SUCCESS) {
+			if (info)
+				_gnix_release_reserved_key(info, requested_key);
+
 			GNIX_INFO(FI_LOG_EP_DATA,
 				  "Failed to auto-register local buffer: %d\n",
 				  rc);
@@ -1248,7 +1297,6 @@ static int __gnix_rndzv_iov_req_build(void *arg)
 	gni_ct_get_post_descriptor_t *cur_ct = NULL;
 	void **next_ct = NULL;
 	int head_off, head_len, tail_len;
-	struct fid_mr *auto_mr;
 
 	GNIX_TRACE(FI_LOG_EP_DATA, "\n");
 
@@ -1272,23 +1320,42 @@ static int __gnix_rndzv_iov_req_build(void *arg)
 
 	/* Ensure the user's recv buffer is registered for recv/recvv */
 	if (!req->msg.recv_md[0]) {
+		struct fid_mr *auto_mr;
+		struct gnix_auth_key *info = NULL;
+		int requested_key = 0;
+		if (req->gnix_ep->domain->mr_mode == FI_MR_SCALABLE) {
+			info = req->gnix_ep->auth_key;
+			assert(info);
+		}
 
 		for (recv_idx = 0; recv_idx < recv_cnt; recv_idx++) {
 			auto_mr = NULL;
-			ret = gnix_mr_reg(&ep->domain->domain_fid.fid,
+			if (info) {
+				requested_key = _gnix_get_next_reserved_key(info);
+				assert(requested_key > 0);
+			}
+
+			ret = _gnix_mr_reg(&ep->domain->domain_fid.fid,
 					  (void *)
 					  req->msg.recv_info[recv_idx].recv_addr,
 					  req->msg.recv_info[recv_idx].recv_len,
-					  FI_READ | FI_WRITE, 0, 0, 0,
-					  &auto_mr, NULL);
+					  FI_READ | FI_WRITE, 0, requested_key, 0,
+					  &auto_mr, NULL, ep->auth_key, PROV_REGISTRATION);
 
 			if (ret != FI_SUCCESS) {
 				GNIX_DEBUG(FI_LOG_EP_DATA,
 					   "Failed to auto-register"
 					   " local buffer: %s\n",
 					   fi_strerror(-ret));
+				if (info)
+					_gnix_release_reserved_key(info, requested_key);
 
 				for (recv_idx--; recv_idx >= 0; recv_idx--) {
+					if (info) {
+						_gnix_release_reserved_key(info,
+							fi_mr_key(&req->msg.recv_md[recv_idx]->mr_fid));
+					}
+
 					fi_close(&req->msg.recv_md[recv_idx]->mr_fid.fid);
 				}
 
@@ -2268,8 +2335,13 @@ static int __gnix_rndzv_fin_cleanup(void *arg)
 {
 	int i;
 	struct gnix_fab_req *req = (struct gnix_fab_req *)arg;
-
+	struct gnix_auth_key *info = NULL;
 	GNIX_TRACE(FI_LOG_EP_DATA, "\n");
+
+	if (req->gnix_ep->domain->mr_mode == FI_MR_SCALABLE) {
+		info = req->gnix_ep->auth_key;
+		assert(info);
+	}
 
 	for (i = 0; i < req->msg.send_iov_cnt; i++) {
 		GNIX_INFO(FI_LOG_EP_DATA, "freeing auto-reg MR: %p\n",
@@ -2277,6 +2349,8 @@ static int __gnix_rndzv_fin_cleanup(void *arg)
 
 		GNIX_DEBUG(FI_LOG_EP_DATA, "req->msg.send_md[%d] ="
 			   " %p\n", i, req->msg.send_md[i]);
+		if (info)
+			_gnix_release_reserved_key(info, fi_mr_key(&req->msg.send_md[i]->mr_fid));
 		fi_close(&req->msg.send_md[i]->mr_fid.fid);
 	}
 
@@ -2974,10 +3048,23 @@ ssize_t _gnix_send(struct gnix_fid_ep *ep, uint64_t loc_addr, size_t len,
 
 	/* need a memory descriptor for large sends */
 	if (rendezvous && !mdesc) {
-		ret = gnix_mr_reg(&ep->domain->domain_fid.fid, (void *)loc_addr,
-				 len, FI_READ | FI_WRITE, 0, 0, 0,
-				 &auto_mr, NULL);
+		struct gnix_auth_key *info = NULL;
+		int requested_key = 0;
+		if (ep->domain->mr_mode == FI_MR_SCALABLE) {
+			info = ep->auth_key;
+			assert(info);
+
+			requested_key = _gnix_get_next_reserved_key(info);
+			assert(info);
+		}
+
+		ret = _gnix_mr_reg(&ep->domain->domain_fid.fid, (void *)loc_addr,
+				 len, FI_READ | FI_WRITE, 0, requested_key, 0,
+				 &auto_mr, NULL, ep->auth_key, PROV_REGISTRATION);
 		if (ret != FI_SUCCESS) {
+			if (info)
+				_gnix_release_reserved_key(info, requested_key);
+
 			GNIX_DEBUG(FI_LOG_EP_DATA,
 				  "Failed to auto-register local buffer: %s\n",
 				   fi_strerror(-ret));
@@ -3198,7 +3285,7 @@ ssize_t _gnix_recvv(struct gnix_fid_ep *ep, const struct iovec *iov,
 			req->work_fn = __gnix_rndzv_iov_req_build;
 			if (!(req->vc->modes & GNIX_VC_MODE_XPMEM)) {
 				if (!desc) {
-					ret = __gnix_msg_register_iov(ep->domain,
+					ret = __gnix_msg_register_iov(ep,
 								      iov,
 								      count,
 								      req->msg.recv_md);
@@ -3403,13 +3490,26 @@ ssize_t _gnix_sendv(struct gnix_fid_ep *ep, const struct iovec *iov,
 	 */
 	if (cum_len >= ep->domain->params.msg_rendezvous_thresh) {
 		if (!mdesc) {	/* Register the memory for the user */
+			struct gnix_auth_key *info = NULL;
+			if (ep->domain->mr_mode == FI_MR_SCALABLE) {
+				info = ep->auth_key;
+				assert(info);
+			}
+
 			for (i = 0; i < count; i++) {
+				int requested_key = 0;
 				auto_mr = NULL;
-				ret = gnix_mr_reg(&ep->domain->domain_fid.fid,
-						  iov[i].iov_base,
-						  iov[i].iov_len,
-						  FI_READ | FI_WRITE, 0, 0, 0,
-						  &auto_mr, NULL);
+
+				if (info) {
+					requested_key = _gnix_get_next_reserved_key(info);
+					assert(requested_key > 0);
+				}
+
+				ret = _gnix_mr_reg(&ep->domain->domain_fid.fid,
+						   iov[i].iov_base,
+				 		   iov[i].iov_len,
+						   FI_READ | FI_WRITE, 0, requested_key, 0,
+						   &auto_mr, NULL, ep->auth_key, PROV_REGISTRATION);
 
 				if (ret != FI_SUCCESS) {
 					GNIX_DEBUG(FI_LOG_EP_DATA,
@@ -3417,7 +3517,14 @@ ssize_t _gnix_sendv(struct gnix_fid_ep *ep, const struct iovec *iov,
 						   " local buffer: %s\n",
 						   fi_strerror(-ret));
 
+					if (info)
+						_gnix_release_reserved_key(info, requested_key);
+
 					for (i--; i >= 0; i--) {
+						if (info) {
+							_gnix_release_reserved_key(info, fi_mr_key(&req->msg.send_md[i]->mr_fid));
+						}
+
 						fi_close(&req->msg.send_md[i]->mr_fid.fid);
 					}
 

@@ -83,8 +83,8 @@ static struct fid_stx *stx_ctx[2];
 static struct fid_stx *stx_ctx_too_late;
 
 #define BUF_SZ (64*1024)
-char *target;
-char *source;
+char *target, *target_base;
+char *source, *source_base;
 char *uc_source;
 struct fid_mr *rem_mr[2], *loc_mr[2];
 uint64_t mr_key[2];
@@ -106,7 +106,8 @@ static void common_setup_stx(void)
 	int ret = 0;
 	struct fi_av_attr attr;
 	size_t addrlen = 0;
-
+	int requested_key[2][2] = {{0,0},{0,0}};
+	int i, j;
 	dgm_fail = 0;
 
 	hints->domain_attr->cq_data_size = 4;
@@ -116,6 +117,8 @@ static void common_setup_stx(void)
 		       FI_WRITE | FI_REMOTE_WRITE;
 
 	hints->fabric_attr->prov_name = strdup("gni");
+
+	gnit_apply_tunables(hints);
 
 	ret = fi_getinfo(fi_version(), NULL, 0, 0, hints, &fi);
 	cr_assert(!ret, "fi_getinfo");
@@ -247,23 +250,32 @@ static void common_setup_stx(void)
 	ret = fi_ep_bind(ep[1], &av[1]->fid, 0);
 	cr_assert(!ret, "fi_ep_bind");
 
-	target = malloc(BUF_SZ);
-	assert(target);
-	source = malloc(BUF_SZ);
-	assert(source);
+	target_base = malloc(GNIT_ALIGN_LEN(BUF_SZ));
+	assert(target_base);
+	target = GNIT_ALIGN_BUFFER(char *, target_base);
+
+	source_base = malloc(GNIT_ALIGN_LEN(BUF_SZ));
+	assert(source_base);
+	source = GNIT_ALIGN_BUFFER(char *, source_base);
+
+	if (gnit_use_scalable) {
+		for (i = 0; i < 2; i++)
+			for (j = 0; j < 2; j++)
+				requested_key[i][j] = (i * 2) + j;
+	}
 
 	ret = fi_mr_reg(dom[0], target, BUF_SZ,
-			FI_REMOTE_WRITE, 0, 0, 0, &rem_mr[0], &target);
+			FI_REMOTE_WRITE, 0, requested_key[0][0], 0, &rem_mr[0], &target);
 	cr_assert_eq(ret, 0);
 	ret = fi_mr_reg(dom[1], target, BUF_SZ,
-			FI_REMOTE_WRITE, 0, 0, 0, &rem_mr[1], &target);
+			FI_REMOTE_WRITE, 0, requested_key[1][0], 0, &rem_mr[1], &target);
 	cr_assert_eq(ret, 0);
 
 	ret = fi_mr_reg(dom[0], source, BUF_SZ,
-			FI_REMOTE_WRITE, 0, 0, 0, &loc_mr[0], &source);
+			FI_REMOTE_WRITE, 0, requested_key[0][1], 0, &loc_mr[0], &source);
 	cr_assert_eq(ret, 0);
 	ret = fi_mr_reg(dom[1], source, BUF_SZ,
-			FI_REMOTE_WRITE, 0, 0, 0, &loc_mr[1], &source);
+			FI_REMOTE_WRITE, 0, requested_key[1][1], 0, &loc_mr[1], &source);
 	cr_assert_eq(ret, 0);
 
 	uc_source = malloc(BUF_SZ);
@@ -343,6 +355,8 @@ static void common_setup_stx_1dom(void)
 		       FI_WRITE | FI_REMOTE_WRITE;
 
 	hints->fabric_attr->prov_name = strdup("gni");
+
+	gnit_apply_tunables(hints);
 
 	ret = fi_getinfo(fi_version(), NULL, 0, 0, hints, &fi);
 	cr_assert(!ret, "fi_getinfo");
@@ -448,17 +462,20 @@ static void common_setup_stx_1dom(void)
 	ret = fi_ep_bind(ep[1], &av[0]->fid, 0);
 	cr_assert(!ret, "fi_ep_bind");
 
-	target = malloc(BUF_SZ);
-	assert(target);
-	source = malloc(BUF_SZ);
-	assert(source);
+	target_base = malloc(GNIT_ALIGN_LEN(BUF_SZ));
+	assert(target_base);
+	target = GNIT_ALIGN_BUFFER(char *, target_base);
+
+	source_base = malloc(GNIT_ALIGN_LEN(BUF_SZ));
+	assert(source_base);
+	source = GNIT_ALIGN_BUFFER(char *, source_base);
 
 	ret = fi_mr_reg(dom[0], target, BUF_SZ,
-			FI_REMOTE_WRITE, 0, 0, 0, &rem_mr[0], &target);
+			FI_REMOTE_WRITE, 0, ((gnit_use_scalable) ? 1 : 0), 0, &rem_mr[0], &target);
 	cr_assert_eq(ret, 0);
 
 	ret = fi_mr_reg(dom[0], source, BUF_SZ,
-			FI_REMOTE_WRITE, 0, 0, 0, &loc_mr[0], &source);
+			FI_REMOTE_WRITE, 0, ((gnit_use_scalable) ? 2 : 0), 0, &loc_mr[0], &source);
 	cr_assert_eq(ret, 0);
 
 	uc_source = malloc(BUF_SZ);
@@ -590,8 +607,8 @@ static void rdm_rma_stx_teardown(void)
 		cr_assert(!ret, "failure in closing dom[1] stx_ctx.");
 	}
 
-	free(target);
-	free(source);
+	free(target_base);
+	free(source_base);
 
 	ret = fi_close(&ep[0]->fid);
 	cr_assert(!ret, "failure in closing ep[0].");
@@ -776,7 +793,7 @@ static void do_write(int len)
 	init_data(target, len, 0);
 
 	sz = fi_write(ep[0], source, len,
-		      loc_mr[0], gni_addr[1], (uint64_t)target, mr_key[1],
+		      loc_mr[0], gni_addr[1], REM_ADDR(target, target), mr_key[1],
 		      target);
 	cr_assert_eq(sz, 0);
 
@@ -850,7 +867,7 @@ static void do_writev(int len)
 	init_data(target, len, 0);
 
 	sz = fi_writev(ep[0], &iov, (void **)loc_mr, 1,
-		       gni_addr[1], (uint64_t)target, mr_key[1],
+		       gni_addr[1], REM_ADDR(target, target), mr_key[1],
 		       target);
 	cr_assert_eq(sz, 0);
 
@@ -923,7 +940,7 @@ static void do_writemsg(int len)
 	iov.iov_base = source;
 	iov.iov_len = len;
 
-	rma_iov.addr = (uint64_t)target;
+	rma_iov.addr = REM_ADDR(target, target);
 	rma_iov.len = len;
 	rma_iov.key = mr_key[1];
 
@@ -1021,7 +1038,7 @@ static void do_write_fence(int len)
 	iov.iov_base = source;
 	iov.iov_len = len;
 
-	rma_iov.addr = (uint64_t)target;
+	rma_iov.addr = REM_ADDR(target, target);
 	rma_iov.len = sizeof(target);
 	rma_iov.key = mr_key[1];
 
@@ -1123,7 +1140,7 @@ static void do_inject_write(int len)
 	init_data(source, len, 0x23);
 	init_data(target, len, 0);
 	sz = fi_inject_write(ep[0], source, len,
-			     gni_addr[1], (uint64_t)target, mr_key[1]);
+			     gni_addr[1], REM_ADDR(target, target), mr_key[1]);
 	cr_assert_eq(sz, 0);
 
 	for (i = 0; i < len; i++) {
@@ -1194,7 +1211,7 @@ static void do_writedata(int len)
 	init_data(source, len, 0x23);
 	init_data(target, len, 0);
 	sz = fi_writedata(ep[0], source, len, loc_mr[0], WRITE_DATA,
-			  gni_addr[1], (uint64_t)target, mr_key[1],
+			  gni_addr[1], REM_ADDR(target, target), mr_key[1],
 			  target);
 	cr_assert_eq(sz, 0);
 
@@ -1275,7 +1292,7 @@ static void do_inject_writedata(int len)
 	init_data(source, len, 0x23);
 	init_data(target, len, 0);
 	sz = fi_inject_writedata(ep[0], source, len, INJECTWRITE_DATA,
-				 gni_addr[1], (uint64_t)target, mr_key[1]);
+				 gni_addr[1], REM_ADDR(target, target), mr_key[1]);
 	cr_assert_eq(sz, 0);
 
 	for (i = 0; i < len; i++) {
@@ -1357,7 +1374,7 @@ static void do_read(int len)
 
 	/* domain 0 from domain 1 */
 	sz = fi_read(ep[0], source, len,
-		     loc_mr[0], gni_addr[1], (uint64_t)target, mr_key[1],
+		     loc_mr[0], gni_addr[1], REM_ADDR(target, target), mr_key[1],
 		     (void *)READ_CTX);
 	cr_assert_eq(sz, 0);
 
@@ -1412,7 +1429,7 @@ static void do_readv(int len)
 	init_data(target, len, 0x25);
 	init_data(source, len, 0);
 	sz = fi_readv(ep[0], &iov, (void **)loc_mr, 1,
-		      gni_addr[1], (uint64_t)target, mr_key[1],
+		      gni_addr[1], REM_ADDR(target, target), mr_key[1],
 		      target);
 	cr_assert_eq(sz, 0);
 
@@ -1466,7 +1483,7 @@ static void do_readmsg(int len)
 	iov.iov_base = source;
 	iov.iov_len = len;
 
-	rma_iov.addr = (uint64_t)target;
+	rma_iov.addr = REM_ADDR(target, target);
 	rma_iov.len = len;
 	rma_iov.key = mr_key[1];
 
@@ -1550,7 +1567,7 @@ static void inject_common(void)
 	iov.iov_base = source;
 	iov.iov_len = GNIX_INJECT_SIZE;
 
-	rma_iov.addr = (uint64_t)target;
+	rma_iov.addr = REM_ADDR(target, target);
 	rma_iov.len = GNIX_INJECT_SIZE;
 	rma_iov.key = mr_key[1];
 
@@ -1615,7 +1632,7 @@ static void do_write_autoreg(int len)
 	init_data(source, len, 0xab);
 	init_data(target, len, 0);
 	sz = fi_write(ep[0], source, len,
-		      NULL, gni_addr[1], (uint64_t)target, mr_key[1],
+		      NULL, gni_addr[1], REM_ADDR(target, target), mr_key[1],
 		      target);
 	cr_assert_eq(sz, 0);
 
@@ -1660,7 +1677,7 @@ static void do_write_autoreg_uncached(int len)
 	init_data(uc_source, len, 0xab);
 	init_data(target, len, 0);
 	sz = fi_write(ep[0], uc_source, len,
-		      NULL, gni_addr[1], (uint64_t)target, mr_key[1],
+		      NULL, gni_addr[1], REM_ADDR(target, target), mr_key[1],
 		      target);
 	cr_assert_eq(sz, 0);
 
@@ -1707,7 +1724,7 @@ static void do_write_error(int len)
 	init_data(source, len, 0xab);
 	init_data(target, len, 0);
 	sz = fi_write(ep[0], source, len,
-		      loc_mr[0], gni_addr[1], (uint64_t)target, mr_key[1],
+		      loc_mr[0], gni_addr[1], REM_ADDR(target, target), mr_key[1],
 		      target);
 	cr_assert_eq(sz, 0);
 
@@ -1782,7 +1799,7 @@ static void do_read_error(int len)
 	init_data(source, len, 0);
 	init_data(target, len, 0xad);
 	sz = fi_read(ep[0], source, len,
-		     loc_mr[0], gni_addr[1], (uint64_t)target, mr_key[1],
+		     loc_mr[0], gni_addr[1], REM_ADDR(target, target), mr_key[1],
 		     (void *)READ_CTX);
 	cr_assert_eq(sz, 0);
 
@@ -1839,7 +1856,7 @@ static void do_read_buf(void *s, void *t, int len)
 #define READ_CTX 0x4e3dda1aULL
 	init_data(s, len, 0);
 	init_data(t, len, 0xad);
-	sz = fi_read(ep[0], s, len, NULL, gni_addr[1], (uint64_t)t, mr_key[1],
+	sz = fi_read(ep[0], s, len, NULL, gni_addr[1], REM_ADDR(target, t), mr_key[1],
 		     (void *)READ_CTX);
 	cr_assert_eq(sz, 0);
 
@@ -1900,22 +1917,33 @@ static void do_write_buf(void *s, void *t, int len)
 	ssize_t sz;
 	struct fi_cq_tagged_entry cqe = { (void *) -1, UINT_MAX, UINT_MAX,
 					  (void *) -1, UINT_MAX, UINT_MAX };
+	struct fi_cq_err_entry cq_err;
 	uint64_t w[2] = {0}, r[2] = {0}, w_e[2] = {0}, r_e[2] = {0};
+	int errors_to_read = (dgm_fail) ? 1 : 0;
 
 	init_data(s, len, 0xab);
 	init_data(t, len, 0);
-	sz = fi_write(ep[0], s, len, NULL, gni_addr[1], (uint64_t)t, mr_key[1],
+	sz = fi_write(ep[0], s, len, NULL, gni_addr[1], REM_ADDR(target, t), mr_key[1],
 		      t);
 	cr_assert_eq(sz, 0);
 
-	while ((ret = fi_cq_read(send_cq[0], &cqe, 1)) == -FI_EAGAIN) {
-		pthread_yield();
-	}
+	do {
+		while ((ret = fi_cq_read(send_cq[0], &cqe, 1)) == -FI_EAGAIN) {
+			pthread_yield();
+		}
 
-	if (dgm_fail) {
-		cr_assert_eq(ret, -FI_EAVAIL);
+		if (dgm_fail) {
+			cr_assert_eq(ret, -FI_EAVAIL);
+
+			ret = fi_cq_readerr(send_cq[0], &cq_err, 0);
+			cr_assert_eq(ret, 1);
+
+			errors_to_read--;
+		}
+	} while (errors_to_read > 0);
+
+	if (dgm_fail)
 		return;
-	}
 
 	cr_assert_eq(ret, 1);
 	rdm_rma_check_tcqe(&cqe, t, FI_RMA | FI_WRITE, 0, ep[0]);
@@ -1992,7 +2020,7 @@ static void do_trigger(int len)
 	iov.iov_base = source;
 	iov.iov_len = len;
 
-	rma_iov.addr = (uint64_t)target;
+	rma_iov.addr = REM_ADDR(target, target);
 	rma_iov.len = len;
 	rma_iov.key = mr_key[1];
 

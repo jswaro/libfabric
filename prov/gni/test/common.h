@@ -45,6 +45,12 @@
 #define BLUE "\x1b[34m"
 #define COLOR_RESET "\x1b[0m"
 
+enum {
+	GNITEST_USE_FI_MR_SCALABLE = 0,
+	GNITEST_PRINT_TUNABLES,
+	MAX_GNITEST_TUNABLES,
+};
+
 /* defined in rdm_atomic.c */
 extern int supported_compare_atomic_ops[FI_ATOMIC_OP_LAST][FI_DATATYPE_LAST];
 extern int supported_fetch_atomic_ops[FI_ATOMIC_OP_LAST][FI_DATATYPE_LAST];
@@ -57,5 +63,47 @@ static inline struct gnix_fid_ep *get_gnix_ep(struct fid_ep *fid_ep)
 {
 	return container_of(fid_ep, struct gnix_fid_ep, ep_fid);
 }
+
+#define DEFINE_TUNABLE(name) extern int name
+
+DEFINE_TUNABLE(gnit_use_scalable);
+DEFINE_TUNABLE(gnit_print_tunables);
+
+#undef DEFINE_TUNABLE
+
+#define LOC_ADDR(base, addr) (addr)
+#define REM_ADDR(base, addr) ((gnit_use_scalable != 0) ? ((uint64_t)(addr) - (uint64_t)(base)) : (uint64_t) (addr))
+
+#define GNIT_ALIGNMENT_ORDER 12
+#define GNIT_ALIGNMENT_PGSIZE (1 << GNIT_ALIGNMENT_ORDER)
+#define GNIT_ALIGNMENT_MASK ((uint64_t) (GNIT_ALIGNMENT_PGSIZE - 1))
+
+#define GNIT_ALIGN_LEN(len) (((uint64_t) len) + GNIT_ALIGNMENT_PGSIZE)
+#define GNIT_ALIGN_BUFFER(type, addr) \
+	(((uint64_t) (addr)) & GNIT_ALIGNMENT_MASK) ? (type)((((uint64_t) (addr)) + GNIT_ALIGNMENT_PGSIZE) & ~(GNIT_ALIGNMENT_MASK)) : (type)(addr)
+
+int gnit_apply_tunables(struct fi_info *hints);
+
+#define SKIP_IF(cond, message) \
+	do { \
+		if (cond) \
+			cr_skip_test(message); \
+	} while (0)
+
+#define SKIP_IF_SCALABLE() SKIP_IF(gnit_use_scalable, "skipping test because FI_MR_SCALABLE in use")
+#define SKIP_IF_NOT_SCALABLE() SKIP_IF((!gnit_use_scalable), "skipping test because FI_MR_BASIC in use")
+
+#define MR_ENABLE(mr, addr, len) \
+	do { \
+		if (gnit_use_scalable) { \
+			struct iovec __iov = { \
+				.iov_base = (void *) (addr),\
+				.iov_len = (len), \
+			}; \
+			int enable_ret; \
+	\
+			enable_ret = fi_mr_refresh((mr), &__iov, 1, 0); \
+			cr_assert_eq(enable_ret, FI_SUCCESS, "failed to enable mr"); \
+	} while (0)
 
 #endif /* PROV_GNI_TEST_COMMON_H_ */

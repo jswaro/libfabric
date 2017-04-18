@@ -201,6 +201,9 @@ static int __nic_setup_irq_cq(struct gnix_nic *nic)
 	gni_return_t status;
 	int fd = -1;
 	void *mmap_addr;
+	int vmdh_index = -1;
+	int flags = GNI_MEM_READWRITE;
+	struct gnix_auth_key *info;
 
 	len = (size_t)sysconf(_SC_PAGESIZE);
 
@@ -216,12 +219,34 @@ static int __nic_setup_irq_cq(struct gnix_nic *nic)
 	nic->irq_mmap_addr = mmap_addr;
 	nic->irq_mmap_len = len;
 
+	if (nic->mr_mode == FI_MR_SCALABLE) {
+		info = _gnix_auth_key_lookup(GNIX_PROV_DEFAULT_AUTH_KEY,
+				GNIX_PROV_DEFAULT_AUTH_KEYLEN);
+		assert(info);
+
+		if (!nic->mdd_resources_set) {
+			/* check to see if the ptag registration limit was set
+			   yet or not -- becomes read-only after success */
+			ret = _gnix_auth_key_enable(info);
+
+			status = GNI_SetMddResources(nic->gni_nic_hndl,
+					info->attr.prov_key_limit + info->attr.user_key_limit);
+			assert(status == GNI_RC_SUCCESS);
+
+			nic->mdd_resources_set = 1;
+		}
+		vmdh_index = _gnix_get_next_reserved_key(info);
+
+		// TODO: handle error condition
+		flags |= GNI_MEM_USE_VMDH;
+	}
+
 	status = GNI_MemRegister(nic->gni_nic_hndl,
 				(uint64_t) nic->irq_mmap_addr,
 				len,
 				nic->rx_cq_blk,
-				GNI_MEM_READWRITE,
-				-1,
+				flags,
+				vmdh_index,
 				 &nic->irq_mem_hndl);
 	if (status != GNI_RC_SUCCESS) {
 		ret = gnixu_to_fi_errno(status);
@@ -881,7 +906,6 @@ int _gnix_nic_free(struct gnix_nic *nic)
 
 int gnix_nic_alloc(struct gnix_fid_domain *domain,
 		   struct gnix_nic_attr *attr,
-		   struct gnix_auth_key *auth_key,
 		   struct gnix_nic **nic_ptr)
 {
 	int ret = FI_SUCCESS;
@@ -959,6 +983,8 @@ int gnix_nic_alloc(struct gnix_fid_domain *domain,
 			ret = -FI_ENOMEM;
 			goto err;
 		}
+
+		nic->mr_mode = domain->mr_mode;
 
 		if (nic_attr->use_cdm_id == false) {
 			ret = _gnix_cm_nic_create_cdm_id(domain, &fake_cdm_id);
@@ -1284,6 +1310,7 @@ int gnix_nic_alloc(struct gnix_fid_domain *domain,
 
 	if (nic) {
 		nic->requires_lock = domain->thread_model != FI_THREAD_COMPLETION;
+		nic->mr_mode = domain->mr_mode;
 	}
 
 	*nic_ptr = nic;

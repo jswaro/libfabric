@@ -72,7 +72,8 @@ void _gnix_ep_int_tx_pool_init(struct gnix_fid_ep *ep)
 	struct fid_mr *auto_mr = NULL;
 	uint8_t *int_tx_bufs;
 	struct gnix_int_tx_buf *int_tx_buf_list;
-
+	struct gnix_auth_key *info;
+	int requested_key = 0;
 	assert(ep);
 
 	int_tx_bufs = malloc(GNIX_INT_TX_POOL_SIZE * GNIX_INT_TX_BUF_SZ);
@@ -89,9 +90,18 @@ void _gnix_ep_int_tx_pool_init(struct gnix_fid_ep *ep)
 	ep->int_tx_pool.buf_ptr = (void *) int_tx_bufs;
 	ep->int_tx_pool.sl_ptr = (void *) int_tx_buf_list;
 
-	ret = gnix_mr_reg(&ep->domain->domain_fid.fid, int_tx_bufs,
+	if (ep->domain->mr_mode == FI_MR_SCALABLE) {
+		info = ep->auth_key;
+		assert(info);
+
+		requested_key = _gnix_get_next_reserved_key(info);
+		assert(requested_key > 0);
+	}
+
+	ret = _gnix_mr_reg(&ep->domain->domain_fid.fid, int_tx_bufs,
 			GNIX_INT_TX_BUF_SZ * GNIX_INT_TX_POOL_SIZE,
-			FI_READ | FI_WRITE, 0, 0, 0, &auto_mr, NULL);
+			FI_READ | FI_WRITE, 0, requested_key, 0,
+			&auto_mr, NULL, ep->auth_key, PROV_REGISTRATION);
 
 	if (unlikely(ret != FI_SUCCESS)) {
 		GNIX_DEBUG(FI_LOG_EP_DATA, "gnix_mr_req returned: %s\n",
@@ -463,7 +473,7 @@ int _gnix_ep_init_vc(struct gnix_fid_ep *ep_priv)
 		GNIX_DEBUG(FI_LOG_EP_CTRL,
 			   "ep_priv->vc_table = %p, ep_priv->vc_table->vector = %p\n",
 			   ep_priv->vc_table, ep_priv->vc_table->vector);
-                if (ret != FI_SUCCESS) {
+		if (ret != FI_SUCCESS) {
 			GNIX_WARN(FI_LOG_EP_CTRL, "_gnix_vec_init returned %s\n",
 				  fi_strerror(ret));
 			goto err;

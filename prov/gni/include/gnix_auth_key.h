@@ -104,6 +104,12 @@ struct gnix_auth_key *_gnix_auth_key_lookup(
 /**
  * Enables and prevents further limit modifications for an authorization key
  *
+ */
+struct gnix_auth_key *_gnix_auth_key_lookup(uint8_t *auth_key, size_t auth_keylen);
+
+/**
+ * Enables and prevents further limit modifications for an authorization key
+ *
  * @param key  GNI authorization key
  * @return     FI_SUCCESS on success
  *             -FI_EINVAL, if bad parameters were passed

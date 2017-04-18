@@ -642,7 +642,7 @@ int _gnix_cm_nic_alloc(struct gnix_fid_domain *domain,
 	nic_attr.cdm_id = cdm_id;
 	nic_attr.auth_key = auth_key;
 
-	ret = gnix_nic_alloc(domain, &nic_attr, auth_key, &cm_nic->nic);
+	ret = gnix_nic_alloc(domain, &nic_attr, &cm_nic->nic);
 	if (ret != FI_SUCCESS) {
 		GNIX_WARN(FI_LOG_EP_CTRL,
 			  "gnix_nic_alloc returned %s\n",

@@ -52,6 +52,7 @@
 
 #include <criterion/criterion.h>
 #include "gnix_rdma_headers.h"
+#include "common.h"
 
 #if 1
 #define dbg_printf(...)
@@ -79,10 +80,10 @@ static struct fi_cq_attr cq_attr;
 #define BUF_SZ (1<<16)
 #define IOV_CNT (1<<3)
 
-char *target;
-char *source;
+char *target, *target_base;
+char *source, *source_base;
 struct iovec *src_iov, *dest_iov;
-char *iov_src_buf, *iov_dest_buf;
+char *iov_src_buf, *iov_dest_buf, *iov_src_buf_base, *iov_dest_buf_base;
 struct fid_mr *rem_mr, *loc_mr;
 uint64_t mr_key;
 
@@ -99,6 +100,8 @@ static void setup_dom(enum fi_progress pm)
 	hints->mode = mode_bits;
 
 	hints->fabric_attr->prov_name = strdup("gni");
+
+	gnit_apply_tunables(hints);
 
 	ret = fi_getinfo(fi_version(), NULL, 0, 0, hints, &fi);
 	cr_assert(!ret, "fi_getinfo");
@@ -189,11 +192,13 @@ static void setup_mr(void)
 	dest_iov = malloc(sizeof(struct iovec) * IOV_CNT);
 	assert(dest_iov);
 
-	target = malloc(BUF_SZ);
-	assert(target);
+	target_base = malloc(GNIT_ALIGN_LEN(BUF_SZ));
+	assert(target_base);
+	target = GNIT_ALIGN_BUFFER(char *, target_base);
 
-	source = malloc(BUF_SZ);
-	assert(source);
+	source_base = malloc(GNIT_ALIGN_LEN(BUF_SZ));
+	assert(source_base);
+	source = GNIT_ALIGN_BUFFER(char *, source_base);
 
 	src_iov = malloc(sizeof(struct iovec) * IOV_CNT);
 	assert(src_iov);
@@ -213,11 +218,13 @@ static void setup_mr(void)
 	assert(iov_src_buf != NULL);
 
 	ret = fi_mr_reg(dom, target, BUF_SZ,
-			FI_SEND | FI_RECV, 0, 0, 0, &rem_mr, &target);
+			FI_SEND | FI_RECV, 0, ((gnit_use_scalable) ? 1 : 0),
+			0, &rem_mr, &target);
 	cr_assert_eq(ret, 0);
 
 	ret = fi_mr_reg(dom, source, BUF_SZ,
-			FI_SEND | FI_RECV, 0, 0, 0, &loc_mr, &source);
+			FI_SEND | FI_RECV, 0, ((gnit_use_scalable) ? 2 : 0),
+			0, &loc_mr, &source);
 	cr_assert_eq(ret, 0);
 
 	mr_key = fi_mr_key(rem_mr);
@@ -238,8 +245,8 @@ static void rdm_tagged_sr_teardown(void)
 	fi_close(&loc_mr->fid);
 	fi_close(&rem_mr->fid);
 
-	free(target);
-	free(source);
+	free(target_base);
+	free(source_base);
 
 	for (i = 0; i < IOV_CNT; i++) {
 		free(src_iov[i].iov_base);
