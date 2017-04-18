@@ -342,7 +342,7 @@ static int __create_slab(struct gnix_mbox_alloc_handle *handle)
 	}
 
 	COND_ACQUIRE(handle->nic_handle->requires_lock, &handle->nic_handle->lock);
-	if (handle->nic_handle->mr_mode == FI_MR_SCALABLE) {
+	if (handle->nic_handle->using_vmdh) {
 		info = _gnix_auth_key_lookup(GNIX_PROV_DEFAULT_AUTH_KEY,
 				GNIX_PROV_DEFAULT_AUTH_KEYLEN);
 		assert(info);

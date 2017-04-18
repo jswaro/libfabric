@@ -566,6 +566,7 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 	struct gnix_fid_fabric *fabric_priv;
 	struct gnix_auth_key *auth_key = NULL;
 	int i;
+	int requesting_vmdh = 0;
 
 	GNIX_TRACE(FI_LOG_DOMAIN, "\n");
 
@@ -580,6 +581,9 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 		(info->domain_attr->auth_keylen || info->domain_attr->auth_key))
 			return -FI_EINVAL;
 
+	requesting_vmdh = !(info->domain_attr->mr_mode &
+			(FI_MR_BASIC | FI_MR_VIRT_ADDR));
+
 	auth_key = GNIX_GET_AUTH_KEY(info->domain_attr->auth_key,
 			info->domain_attr->auth_keylen);
 	if (!auth_key)
@@ -589,15 +593,14 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 		  "authorization key=%p ptag %u cookie 0x%x\n",
 		  auth_key, auth_key->ptag, auth_key->cookie);
 
-	if (auth_key->mr_mode != FI_MR_UNSPEC &&
-		info->domain_attr->mr_mode != FI_MR_UNSPEC &&
-		auth_key->mr_mode != info->domain_attr->mr_mode)
+	if ((auth_key->using_vmdh && !requesting_vmdh) ||
+		(!auth_key->using_vmdh && requesting_vmdh))
 	{
 		GNIX_WARN(FI_LOG_DOMAIN, "GNIX provider cannot support multiple "
 			"FI_MR_BASIC and FI_MR_SCALABLE for the same ptag. "
 			"ptag=%d current_mode=%x requested_mode=%x\n",
 			auth_key->ptag,
-			auth_key->mr_mode, info->domain_attr->mr_mode);
+			auth_key->using_vmdh, info->domain_attr->mr_mode);
 		return -FI_EINVAL;
 	}
 
@@ -683,16 +686,14 @@ DIRECT_FN int gnix_domain_open(struct fid_fabric *fabric, struct fi_info *info,
 	domain->mr_iov_limit = info->domain_attr->mr_iov_limit;
 
 	fastlock_init(&domain->cm_nic_lock);
-	domain->mr_mode = (info->domain_attr->mr_mode == FI_MR_UNSPEC) ?
-		GNIX_MR_MODE_DEFAULT : info->domain_attr->mr_mode;
 
-	auth_key->mr_mode = domain->mr_mode;
+	domain->using_vmdh = requesting_vmdh;
 
+	auth_key->using_vmdh = domain->using_vmdh;
 	_gnix_auth_key_enable(auth_key);
-
 	domain->auth_key = auth_key;
 
-	if (domain->mr_mode & (FI_MR_BASIC | FI_MR_VIRT_ADDR)) {
+	if (requesting_vmdh) {
 		_gnix_open_cache(domain, GNIX_DEFAULT_CACHE_TYPE);
 	} else {
 		domain->mr_cache_type = GNIX_MR_TYPE_NONE;

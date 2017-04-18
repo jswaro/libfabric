@@ -165,15 +165,15 @@ static void __gnix_rma_copy_chained_get_data(struct gnix_fab_req *req)
 
 static void __gnix_rma_more_fr_complete(struct gnix_fab_req *req)
 {
-	struct gnix_auth_key *info;
+	struct gnix_auth_key *auth_key;
 
 	if (req->flags & FI_LOCAL_MR) {
-		info = req->gnix_ep->auth_key;
-		assert(info);
+		auth_key = req->gnix_ep->auth_key;
+		assert(auth_key);
 
-		if (info->mr_mode == FI_MR_SCALABLE) {
+		if (auth_key->using_vmdh) {
 			GNIX_INFO(FI_LOG_DOMAIN, "releasing key %lu\n", fi_mr_key(&req->rma.loc_md->mr_fid));
-			_gnix_release_reserved_key(info, fi_mr_key(&req->rma.loc_md->mr_fid));
+			_gnix_release_reserved_key(auth_key, fi_mr_key(&req->rma.loc_md->mr_fid));
 		}
 
 		GNIX_INFO(FI_LOG_EP_DATA, "freeing auto-reg MR: %p\n",
@@ -191,15 +191,15 @@ static void __gnix_rma_more_fr_complete(struct gnix_fab_req *req)
 
 static void __gnix_rma_fr_complete(struct gnix_fab_req *req)
 {
-	struct gnix_auth_key *info;
+	struct gnix_auth_key *auth_key;
 
 	if (req->flags & FI_LOCAL_MR) {
-		info = req->gnix_ep->auth_key;
-		assert(info);
+		auth_key = req->gnix_ep->auth_key;
+		assert(auth_key);
 
-		if (info->mr_mode == FI_MR_SCALABLE) {
+		if (auth_key->using_vmdh) {
 			GNIX_INFO(FI_LOG_DOMAIN, "releasing key %lu\n", fi_mr_key(&req->rma.loc_md->mr_fid));
-			_gnix_release_reserved_key(info, fi_mr_key(&req->rma.loc_md->mr_fid));
+			_gnix_release_reserved_key(auth_key, fi_mr_key(&req->rma.loc_md->mr_fid));
 		}
 
 		GNIX_INFO(FI_LOG_EP_DATA, "freeing auto-reg MR: %p\n",

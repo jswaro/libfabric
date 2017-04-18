@@ -207,7 +207,7 @@ struct gnix_nic {
 	size_t irq_mmap_len;
 	int requires_lock;
 	int mdd_resources_set;
-	int mr_mode;
+	int using_vmdh;
 };
 
 

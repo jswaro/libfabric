@@ -219,7 +219,7 @@ static int __nic_setup_irq_cq(struct gnix_nic *nic)
 	nic->irq_mmap_addr = mmap_addr;
 	nic->irq_mmap_len = len;
 
-	if (nic->mr_mode == FI_MR_SCALABLE) {
+	if (nic->using_vmdh) {
 		info = _gnix_auth_key_lookup(GNIX_PROV_DEFAULT_AUTH_KEY,
 				GNIX_PROV_DEFAULT_AUTH_KEYLEN);
 		assert(info);
@@ -984,7 +984,7 @@ int gnix_nic_alloc(struct gnix_fid_domain *domain,
 			goto err;
 		}
 
-		nic->mr_mode = domain->mr_mode;
+		nic->using_vmdh = domain->using_vmdh;
 
 		if (nic_attr->use_cdm_id == false) {
 			ret = _gnix_cm_nic_create_cdm_id(domain, &fake_cdm_id);
@@ -1310,7 +1310,7 @@ int gnix_nic_alloc(struct gnix_fid_domain *domain,
 
 	if (nic) {
 		nic->requires_lock = domain->thread_model != FI_THREAD_COMPLETION;
-		nic->mr_mode = domain->mr_mode;
+		nic->using_vmdh = domain->using_vmdh;
 	}
 
 	*nic_ptr = nic;

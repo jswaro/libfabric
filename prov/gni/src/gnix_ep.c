@@ -90,7 +90,7 @@ void _gnix_ep_int_tx_pool_init(struct gnix_fid_ep *ep)
 	ep->int_tx_pool.buf_ptr = (void *) int_tx_bufs;
 	ep->int_tx_pool.sl_ptr = (void *) int_tx_buf_list;
 
-	if (ep->domain->mr_mode == FI_MR_SCALABLE) {
+	if (ep->domain->using_vmdh) {
 		info = ep->auth_key;
 		assert(info);
 

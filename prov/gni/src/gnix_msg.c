@@ -224,10 +224,9 @@ static inline int __gnix_msg_register_iov(struct gnix_fid_ep *ep,
 	struct gnix_auth_key *auth_key = ep->auth_key;
 	struct gnix_fid_domain *dom = ep->domain;
 	int reserved_key = 0;
-	int using_vmdh = auth_key->mr_mode == FI_MR_SCALABLE;
 
 	for (i = 0; i < count; i++) {
-		if (using_vmdh) {
+		if (auth_key->using_vmdh) {
 			reserved_key = _gnix_get_next_reserved_key(auth_key);
 			assert(reserved_key > 0);
 		}
@@ -246,12 +245,12 @@ static inline int __gnix_msg_register_iov(struct gnix_fid_ep *ep,
 				   " local buffer: %s\n",
 				   fi_strerror(-ret));
 
-			if (using_vmdh)
+			if (auth_key->using_vmdh)
 				_gnix_release_reserved_key(auth_key,
 					reserved_key);
 
 			for (i--; i >= 0; i--) {
-				if (using_vmdh)
+				if (auth_key->using_vmdh)
 					_gnix_release_reserved_key(auth_key,
 						fi_mr_key(&md_vec[i]->mr_fid));
 				fi_close(&md_vec[i]->mr_fid.fid);
@@ -834,7 +833,7 @@ static int __gnix_rndzv_req_complete(void *arg, gni_return_t tx_status)
 	GNIX_INFO(FI_LOG_EP_DATA, "Completed RNDZV GET, req: %p\n", req);
 
 	if (req->msg.recv_flags & FI_LOCAL_MR) {
-		if (req->gnix_ep->domain->mr_mode == FI_MR_SCALABLE) {
+		if (req->gnix_ep->domain->using_vmdh) {
 			struct gnix_auth_key *info = req->gnix_ep->auth_key;
 			assert(info);
 
@@ -911,7 +910,7 @@ static int __gnix_rndzv_iov_req_complete(void *arg, gni_return_t tx_status)
 			if (req->msg.recv_flags & FI_LOCAL_MR) {
 				struct gnix_auth_key *info = NULL;
 
-				if (req->gnix_ep->domain->mr_mode == FI_MR_SCALABLE) {
+				if (req->gnix_ep->domain->using_vmdh) {
 					info = req->gnix_ep->auth_key;
 					assert(info);
 				}
@@ -1066,7 +1065,7 @@ static int __gnix_rndzv_req(void *arg)
 
 	if (!req->msg.recv_md[0]) {
 		struct gnix_auth_key *info = NULL;
-		if (ep->domain->mr_mode == FI_MR_SCALABLE) {
+		if (ep->domain->using_vmdh) {
 			info = ep->auth_key;
 			assert(info);
 
@@ -1323,7 +1322,7 @@ static int __gnix_rndzv_iov_req_build(void *arg)
 		struct fid_mr *auto_mr;
 		struct gnix_auth_key *info = NULL;
 		int requested_key = 0;
-		if (req->gnix_ep->domain->mr_mode == FI_MR_SCALABLE) {
+		if (req->gnix_ep->domain->using_vmdh) {
 			info = req->gnix_ep->auth_key;
 			assert(info);
 		}
@@ -2338,7 +2337,7 @@ static int __gnix_rndzv_fin_cleanup(void *arg)
 	struct gnix_auth_key *info = NULL;
 	GNIX_TRACE(FI_LOG_EP_DATA, "\n");
 
-	if (req->gnix_ep->domain->mr_mode == FI_MR_SCALABLE) {
+	if (req->gnix_ep->domain->using_vmdh) {
 		info = req->gnix_ep->auth_key;
 		assert(info);
 	}
@@ -3050,7 +3049,7 @@ ssize_t _gnix_send(struct gnix_fid_ep *ep, uint64_t loc_addr, size_t len,
 	if (rendezvous && !mdesc) {
 		struct gnix_auth_key *info = NULL;
 		int requested_key = 0;
-		if (ep->domain->mr_mode == FI_MR_SCALABLE) {
+		if (ep->domain->using_vmdh) {
 			info = ep->auth_key;
 			assert(info);
 
@@ -3491,7 +3490,7 @@ ssize_t _gnix_sendv(struct gnix_fid_ep *ep, const struct iovec *iov,
 	if (cum_len >= ep->domain->params.msg_rendezvous_thresh) {
 		if (!mdesc) {	/* Register the memory for the user */
 			struct gnix_auth_key *info = NULL;
-			if (ep->domain->mr_mode == FI_MR_SCALABLE) {
+			if (ep->domain->using_vmdh) {
 				info = ep->auth_key;
 				assert(info);
 			}

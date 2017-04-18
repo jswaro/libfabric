@@ -251,11 +251,11 @@ int _gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 
 	domain = container_of(fid, struct gnix_fid_domain, domain_fid.fid);
 
-	if (auth_key->mr_mode == FI_MR_SCALABLE && !reserved &&
+	if (auth_key->using_vmdh && !reserved &&
 		requested_key >= auth_key->attr.user_key_limit)
 		return -FI_EKEYREJECTED;
 
-	if (auth_key->mr_mode == FI_MR_SCALABLE && !reserved &&
+	if (auth_key->using_vmdh && !reserved &&
 		requested_key < auth_key->attr.user_key_limit) {
 		rc = _gnix_test_and_set_bit(&auth_key->user, requested_key);
 		if (rc)
@@ -572,7 +572,7 @@ static inline void *__gnix_generic_register(
 	}
 
 	COND_ACQUIRE(nic->requires_lock, &nic->lock);
-	if (nic->mr_mode == FI_MR_SCALABLE && !nic->mdd_resources_set) {
+	if (nic->using_vmdh && !nic->mdd_resources_set) {
 		info = auth_key;
 		assert(info);
 
@@ -631,7 +631,7 @@ static void *__gnix_register_region(
 	else
 		flags |= GNI_MEM_READ_ONLY;
 
-	if (domain->mr_mode == FI_MR_SCALABLE) {
+	if (domain->using_vmdh) {
 		flags |= GNI_MEM_USE_VMDH | GNI_MEM_RESERVE_REGION;
 		vmdh_index = fi_reg_context->requested_key;
 	}
