@@ -1415,10 +1415,9 @@ ssize_t _gnix_rma(struct gnix_fid_ep *ep, enum gnix_fab_req_type fr_type,
 			requested_key = 0;
 
 		/* We need to auto-register the source buffer. */
-		rc = _gnix_mr_reg(&ep->domain->domain_fid.fid, (void *)loc_addr,
+		rc = _gnix_mr_reg_prov(&ep->domain->domain_fid.fid, (void *)loc_addr,
 				 len, FI_READ | FI_WRITE, 0, requested_key,
-				 0, &auto_mr, NULL, ep->auth_key,
-				 GNIX_PROV_REG);
+				 0, &auto_mr, NULL, ep->auth_key);
 		if (rc != FI_SUCCESS) {
 			GNIX_INFO(FI_LOG_EP_DATA,
 				  "Failed to auto-register local buffer: %d\n",

@@ -42,7 +42,7 @@
 #include "gnix_priv.h"
 
 /* forward declarations */
-static int __gnix_mr_refresh(struct gnix_fid_mem_desc *desc,
+static int _gnix_mr_refresh(struct gnix_fid_mem_desc *desc,
 	uint64_t addr, uint64_t len);
 static int fi_gnix_mr_close(fid_t fid);
 static int fi_gnix_mr_control(struct fid *fid, int command, void *arg);
@@ -196,7 +196,37 @@ static inline uint64_t __calculate_length(
 	return pages * pagesize;
 }
 
-int _gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
+int _gnix_mr_reg_prov(struct fid *fid, const void *buf, size_t len,
+			  uint64_t access, uint64_t offset,
+			  uint64_t requested_key, uint64_t flags,
+			  struct fid_mr **mr_o, void *context,
+			  struct gnix_auth_key *auth_key)
+{
+	struct gnix_fid_mem_desc *mr = NULL;
+	int rc;
+
+	if (auth_key->using_vmdh) {
+		if (!auth_key->prov_reg) {
+			rc = _gnix_mr_reg(fid, 0, UINTMAX_MAX, requested_key, flags,
+					&auth_key->prov_reg, context, auth_key, GNIX_PROV_REG);
+			if (!rc)
+				return rc;
+		}
+
+		mr = (struct gnix_fid_mem_desc *) auth_key->prov_reg->mem_desc;
+
+		rc = _gnix_mr_refresh(mr, buf, len);
+		if (rc == FI_SUCCESS)
+			*mr_o = auth_key->prov_reg;
+	} else {
+		rc = _gnix_mr_reg(fid, buf, len, access, offset, requested_key,
+				flags, mr_o, context, auth_key, GNIX_PROV_REG);
+	}
+
+	return rc;
+}
+
+static int _gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 			  uint64_t access, uint64_t offset,
 			  uint64_t requested_key, uint64_t flags,
 			  struct fid_mr **mr_o, void *context,
@@ -305,7 +335,7 @@ int _gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
 	mr->auth_key = auth_key;
 
 	if (reserved && auth_key->using_vmdh) {
-		rc = __gnix_mr_refresh(mr, reg_addr, reg_len);
+		rc = _gnix_mr_refresh(mr, reg_addr, reg_len);
 		if (rc != FI_SUCCESS)
 			GNIX_FATAL(FI_LOG_MR,
 				"failed to enabled internal provider registration, ret=%d",
@@ -404,11 +434,10 @@ DIRECT_FN int gnix_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
 	return -FI_EOPNOTSUPP;
 }
 
-static int __gnix_mr_refresh(struct gnix_fid_mem_desc *desc,
+int _gnix_mr_refresh(struct gnix_fid_mem_desc *desc,
 		uint64_t addr, uint64_t len)
 {
 		gni_return_t grc;
-
 
 	fastlock_acquire(&desc->nic->lock);
 	grc = GNI_MemRegister(desc->nic->gni_nic_hndl, addr,
@@ -465,7 +494,7 @@ static int __gnix_mr_refresh_iov(struct fid *fid, void *arg)
 		aligned_len += (((addr + len) & 0xfff) ?
 			(0x1000 - ((addr + len) & 0xfff)) : 0);
 
-		ret = __gnix_mr_refresh(desc, aligned_addr, aligned_len);
+		ret = _gnix_mr_refresh(desc, aligned_addr, aligned_len);
 		if (ret) {
 			GNIX_WARN(FI_LOG_DOMAIN,
 				"failed to refresh IOV %d, addr=%p len=%x\n",

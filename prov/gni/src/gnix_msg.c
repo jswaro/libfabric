@@ -225,12 +225,12 @@ static inline int __gnix_msg_register_iov(struct gnix_fid_ep *ep,
 
 	for (i = 0; i < count; i++) {
 
-		ret = _gnix_mr_reg(&dom->domain_fid.fid,
+		ret = _gnix_mr_reg_prov(&dom->domain_fid.fid,
 				  iov[i].iov_base,
 				  iov[i].iov_len,
 				  FI_READ | FI_WRITE, 0,
 				  0, 0, &auto_mr, NULL,
-				  ep->auth_key, GNIX_PROV_REG);
+				  ep->auth_key);
 
 		if (ret != FI_SUCCESS) {
 			GNIX_DEBUG(FI_LOG_EP_DATA,
@@ -1062,11 +1062,11 @@ static int __gnix_rndzv_req(void *arg)
 		return  __gnix_rndzv_req_xpmem(req);
 
 	if (!req->msg.recv_md[0]) {
-		rc = _gnix_mr_reg(&ep->domain->domain_fid.fid,
+		rc = _gnix_mr_reg_prov(&ep->domain->domain_fid.fid,
 				  (void *)req->msg.recv_info[0].recv_addr,
 				  req->msg.recv_info[0].recv_len,
 				  FI_READ | FI_WRITE, 0, 0, 0,
-				  &auto_mr, NULL, ep->auth_key, GNIX_PROV_REG);
+				  &auto_mr, NULL, ep->auth_key);
 		if (rc != FI_SUCCESS) {
 			GNIX_INFO(FI_LOG_EP_DATA,
 				  "Failed to auto-register local buffer: %d\n",
@@ -1312,12 +1312,12 @@ static int __gnix_rndzv_iov_req_build(void *arg)
 		for (recv_idx = 0; recv_idx < recv_cnt; recv_idx++) {
 			auto_mr = NULL;
 
-			ret = _gnix_mr_reg(&ep->domain->domain_fid.fid,
+			ret = _gnix_mr_reg_prov(&ep->domain->domain_fid.fid,
 					  (void *)
 					  req->msg.recv_info[recv_idx].recv_addr,
 					  req->msg.recv_info[recv_idx].recv_len,
 					  FI_READ | FI_WRITE, 0, 0, 0,
-					  &auto_mr, NULL, ep->auth_key, GNIX_PROV_REG);
+					  &auto_mr, NULL, ep->auth_key);
 
 			if (ret != FI_SUCCESS) {
 				GNIX_DEBUG(FI_LOG_EP_DATA,
@@ -3131,11 +3131,10 @@ ssize_t _gnix_send(struct gnix_fid_ep *ep, uint64_t loc_addr, size_t len,
 
 	/* need a memory descriptor for large sends */
 	if (rendezvous && !mdesc) {
-		ret = _gnix_mr_reg(&ep->domain->domain_fid.fid, (void *)loc_addr,
+		ret = _gnix_mr_reg_prov(&ep->domain->domain_fid.fid, (void *)loc_addr,
 				 len, FI_READ | FI_WRITE, 0,
 				 0, 0,
-				 &auto_mr, NULL, ep->auth_key,
-				 GNIX_PROV_REG);
+				 &auto_mr, NULL, ep->auth_key);
 		if (ret != FI_SUCCESS) {
 			GNIX_DEBUG(FI_LOG_EP_DATA,
 				  "Failed to auto-register local buffer: %s\n",
@@ -3571,11 +3570,11 @@ ssize_t _gnix_sendv(struct gnix_fid_ep *ep, const struct iovec *iov,
 			for (i = 0; i < count; i++) {
 				auto_mr = NULL;
 
-				ret = _gnix_mr_reg(&ep->domain->domain_fid.fid,
+				ret = _gnix_mr_reg_prov(&ep->domain->domain_fid.fid,
 						   iov[i].iov_base,
 						   iov[i].iov_len,
 						   FI_READ | FI_WRITE, 0, 0, 0,
-						   &auto_mr, NULL, ep->auth_key, GNIX_PROV_REG);
+						   &auto_mr, NULL, ep->auth_key);
 
 				if (ret != FI_SUCCESS) {
 					GNIX_DEBUG(FI_LOG_EP_DATA,

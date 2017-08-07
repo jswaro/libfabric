@@ -580,10 +580,10 @@ ssize_t _gnix_atomic(struct gnix_fid_ep *ep,
 		}
 
 		if (!result_desc || !result_desc[0]) {
-			rc = _gnix_mr_reg(&ep->domain->domain_fid.fid,
+			rc = _gnix_mr_reg_prov(&ep->domain->domain_fid.fid,
 					 loc_addr, len, FI_READ | FI_WRITE,
 					 0, 0, 0, &auto_mr,
-					 NULL, ep->auth_key, GNIX_PROV_REG);
+					 NULL, ep->auth_key);
 			if (rc != FI_SUCCESS) {
 				GNIX_INFO(FI_LOG_EP_DATA,
 					  "Failed to auto-register local buffer: %d\n",

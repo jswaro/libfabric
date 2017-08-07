@@ -101,7 +101,7 @@ int _gnix_ep_int_tx_pool_grow(struct gnix_fid_ep *ep)
 		goto tx_ptrs_err;
 	}
 
-	ret = _gnix_mr_reg(&ep->domain->domain_fid.fid, tx_bufs,
+	ret = _gnix_mr_reg_prov(&ep->domain->domain_fid.fid, tx_bufs,
 			GNIX_INT_TX_BUF_SZ * GNIX_INT_TX_POOL_SIZE,
 			FI_READ | FI_WRITE, 0, 0, 0,
 			&auto_mr, NULL, ep->auth_key, GNIX_PROV_REG);

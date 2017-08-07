@@ -208,17 +208,12 @@ int _gnix_flush_registration_cache(struct gnix_fid_domain *domain);
  * @param mr_o           pointer to returned registration
  * @param context        context to associate with registration
  * @param auth_key       authorization key to associate with registration
- * @param reserved       1 if provider registration, 0 otherwise
- *
- * @note  Set reserved to 0 for a user registration
- * @note  Set reserved to 1 for a provider registration 
  */
-int _gnix_mr_reg(struct fid *fid, const void *buf, size_t len,
+int _gnix_mr_reg_prov(struct fid *fid, const void *buf, size_t len,
 			  uint64_t access, uint64_t offset,
 			  uint64_t requested_key, uint64_t flags,
 			  struct fid_mr **mr_o, void *context,
-			  struct gnix_auth_key *auth_key,
-			  int reserved);
+			  struct gnix_auth_key *auth_key);
 
 extern gnix_mr_cache_attr_t _gnix_default_mr_cache_attr;
 
