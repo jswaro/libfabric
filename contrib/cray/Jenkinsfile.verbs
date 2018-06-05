@@ -5,7 +5,7 @@
 // functions:
 //   -- launch
 //   -- publish
-@Library('CrayNetworkCI@pruneHashes') _
+@Library('CrayNetworkCI@feature/pruneHashes') _
 
 pipeline {
     options {
