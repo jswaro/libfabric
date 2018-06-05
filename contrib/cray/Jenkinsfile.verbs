@@ -158,7 +158,7 @@ pipeline {
                     publish env.LIBFABRIC_BUILD_PATH, "$BRANCH_NAME", "$GIT_SHORT_COMMIT"
                 }
             }
-        }
+        }*/
         stage("Deploy: RPMs") {
             when {
                 anyOf { expression { env.BRANCH_NAME == 'master' } ; buildingTag() }
@@ -170,7 +170,7 @@ pipeline {
                 stash name: 'rpms', includes: 'rpmbuild/RPMS/**/*'
                 stash name: 'sources',  includes: 'rpmbuild/SOURCES/*'
             }
-        }*/
+        }
     }
     post {
         success {
