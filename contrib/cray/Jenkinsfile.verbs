@@ -39,7 +39,7 @@ pipeline {
                 sh 'test -e $OMB_BUILD_PATH/pt2pt/osu_bw'
             }
         }
-        stage('Build') {
+/*        stage('Build') {
             steps {
                 sh './autogen.sh'
                 sh './configure --prefix=$TMP_INSTALL_PATH'
@@ -170,7 +170,7 @@ pipeline {
                 stash name: 'rpms', includes: 'rpmbuild/RPMS/**/*'
                 stash name: 'sources',  includes: 'rpmbuild/SOURCES/*'
             }
-        }
+        }*/
     }
     post {
         success {
