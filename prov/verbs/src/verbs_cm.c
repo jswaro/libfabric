@@ -327,7 +327,7 @@ fi_ibv_msg_xrc_ep_connect(struct fid_ep *ep, const void *addr,
 	struct fi_ibv_cm_data_hdr *cm_hdr;
 
 	if (!_ep->srqn) {
-		ret = ep->fid.ops->control(&ep->fid, FI_ENABLE, NULL);
+		ret = fi_control(&ep->fid, FI_ENABLE, NULL);
 		if (ret)
 			return ret;
 	}
@@ -359,7 +359,7 @@ fi_ibv_msg_xrc_ep_accept(struct fid_ep *ep, const void *param, size_t paramlen)
 	struct fi_ibv_cm_data_hdr *cm_hdr;
 
 	if (!_ep->srqn) {
-		ret = ep->fid.ops->control(&ep->fid, FI_ENABLE, NULL);
+		ret = fi_control(&ep->fid, FI_ENABLE, NULL);
 		if (ret)
 			return ret;
 	}
