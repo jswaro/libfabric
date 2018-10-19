@@ -218,27 +218,32 @@ fi_ibv_msg_ep_accept(struct fid_ep *ep, const void *param, size_t paramlen)
 	return 0;
 }
 
-static void *fi_ibv_msg_alloc_xrc_params(const void *param, size_t *paramlen)
+static int fi_ibv_msg_alloc_xrc_params(void **adjusted_param,
+				       const void *param, size_t *paramlen)
 {
 	struct fi_ibv_xrc_cm_data *cm_data;
 	size_t cm_datalen = sizeof(*cm_data) + *paramlen;
 
+	*adjusted_param = NULL;
+
 	if (cm_datalen > FI_IBV_CM_DATA_SIZE) {
 		VERBS_WARN(FI_LOG_EP_CTRL, "XRC CM data overflow %"PRIu64"\n",
 			   cm_datalen);
-		errno = FI_EINVAL;
-		return NULL;
+		return -FI_EINVAL;
 	}
 
 	cm_data = malloc(cm_datalen);
 	if (!cm_data) {
-		errno = FI_ENOMEM;
-		return NULL;
+		VERBS_WARN(FI_LOG_EP_CTRL, "Unable to allocate XRC CM data\n");
+		return -FI_ENOMEM;
 	}
+
 	if (paramlen)
 		memcpy((cm_data + 1), param, *paramlen);
+
 	*paramlen = cm_datalen;
-	return cm_data;
+	*adjusted_param = cm_data;
+	return FI_SUCCESS;
 }
 
 static int
@@ -248,9 +253,9 @@ fi_ibv_msg_xrc_ep_reject(struct fi_ibv_connreq *connreq,
 	struct fi_ibv_xrc_cm_data *cm_data;
 	int ret;
 
-	cm_data = fi_ibv_msg_alloc_xrc_params(param, &paramlen);
-	if (!cm_data)
-		return -errno;
+	ret = fi_ibv_msg_alloc_xrc_params((void **)&cm_data, param, &paramlen);
+	if (ret)
+		return ret;
 
 	fi_ibv_set_xrc_cm_data(cm_data, connreq->xrc.is_reciprocal,
 			       connreq->xrc.conn_tag, connreq->xrc.port, 0);
@@ -334,9 +339,9 @@ fi_ibv_msg_xrc_ep_connect(struct fid_ep *ep, const void *addr,
 	cm_hdr = alloca(sizeof(*cm_hdr) + paramlen);
 	fi_ibv_msg_ep_prepare_cm_data(param, paramlen, cm_hdr);
 	paramlen += sizeof(*cm_hdr);
-	adjusted_param = fi_ibv_msg_alloc_xrc_params(cm_hdr, &paramlen);
-	if (!adjusted_param)
-		return -errno;
+	ret = fi_ibv_msg_alloc_xrc_params(&adjusted_param, cm_hdr, &paramlen);
+	if (ret)
+		return ret;
 
 	dst_addr = rdma_get_peer_addr(_ep->id);
 	ret = fi_ibv_connect_xrc(_ep, dst_addr, 0, adjusted_param, paramlen);
@@ -366,9 +371,9 @@ fi_ibv_msg_xrc_ep_accept(struct fid_ep *ep, const void *param, size_t paramlen)
 	cm_hdr = alloca(sizeof(*cm_hdr) + paramlen);
 	fi_ibv_msg_ep_prepare_cm_data(param, paramlen, cm_hdr);
 	paramlen += sizeof(*cm_hdr);
-	adjusted_param = fi_ibv_msg_alloc_xrc_params(cm_hdr, &paramlen);
-	if (!adjusted_param)
-		return -errno;
+	ret = fi_ibv_msg_alloc_xrc_params(&adjusted_param, cm_hdr, &paramlen);
+	if (ret)
+		return ret;
 
 	ret = fi_ibv_accept_xrc(_ep, 0, adjusted_param, paramlen);
 	free(adjusted_param);
