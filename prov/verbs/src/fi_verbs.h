@@ -553,7 +553,7 @@ enum fi_ibv_xrc_ep_conn_state {
  * is established.
  */
 struct fi_ibv_xrc_ep_conn_setup {
-	uint32_t			tag;
+	uint32_t			conn_tag;
 
 	/* IB CM message stale/duplicate detection processing requires
 	 * that shared INI/TGT connections use unique QP numbers during
@@ -644,7 +644,7 @@ struct fi_ibv_xrc_cm_data {
 	uint8_t		reciprocal;
 	uint16_t	port;
 	uint32_t	param;
-	uint32_t	tag;
+	uint32_t	conn_tag;
 };
 
 struct fi_ibv_xrc_conn_info {
@@ -671,11 +671,12 @@ struct fi_ibv_cm_data_hdr {
 };
 
 void fi_ibv_eq_set_xrc_conn_tag(struct fi_ibv_ep *ep);
-struct fi_ibv_ep *fi_ibv_eq_xrc_conn_tag2ep(struct fi_ibv_eq *eq,uint32_t tag);
+struct fi_ibv_ep *fi_ibv_eq_xrc_conn_tag2ep(struct fi_ibv_eq *eq,
+					    uint32_t conn_tag);
 void fi_ibv_eq_clear_xrc_conn_tag(struct fi_ibv_ep *ep);
 
 void fi_ibv_set_xrc_cm_data(struct fi_ibv_xrc_cm_data *local, int reciprocal,
-			    uint32_t tag, uint16_t port, uint32_t param);
+			    uint32_t conn_tag, uint16_t port, uint32_t param);
 int fi_ibv_verify_xrc_cm_data(struct fi_ibv_xrc_cm_data *remote,
 			      int private_data_len);
 int fi_ibv_connect_xrc(struct fi_ibv_ep *ep, struct sockaddr *addr,
@@ -696,9 +697,9 @@ void fi_ibv_put_shared_ini_conn(struct fi_ibv_ep *ep);
 struct ibv_qp *fi_ibv_reserve_qpn(struct fi_ibv_ep *ep);
 void fi_ibv_release_qpn(struct ibv_qp *rsvd_qpn);
 
-struct fi_ibv_ep *fi_ibv_tag_to_ep(uint32_t tag);
+struct fi_ibv_ep *fi_ibv_conn_tag_to_ep(uint32_t conn_tag);
 int fi_ibv_alloc_conn_tag(struct fi_ibv_ep *ep);
-void fi_ibv_free_conn_tag(uint32_t tag);
+void fi_ibv_free_conn_tag(uint32_t conn_tag);
 int fi_ibv_xrc_msg_ep_connreq(struct fi_ibv_eq *eq,
 			      struct fi_ibv_connreq *connreq,
 			      struct fi_eq_cm_entry *entry);

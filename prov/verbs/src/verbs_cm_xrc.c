@@ -42,12 +42,12 @@ void fi_ibv_save_priv_data(struct fi_ibv_ep *ep, const void *data, size_t len)
 }
 
 void fi_ibv_set_xrc_cm_data(struct fi_ibv_xrc_cm_data *local, int reciprocal,
-			    uint32_t tag, uint16_t port, uint32_t param)
+			    uint32_t conn_tag, uint16_t port, uint32_t param)
 {
 	local->version = FI_IBV_XRC_VERSION;
 	local->reciprocal = reciprocal ? 1 : 0;
 	local->port = htons(port);
-	local->tag = htonl(tag);
+	local->conn_tag = htonl(conn_tag);
 	local->param = htonl(param);
 }
 
@@ -289,7 +289,7 @@ int fi_ibv_accept_xrc(struct fi_ibv_ep *ep, int reciprocal,
 	if (connreq->xrc.is_reciprocal)
 		fi_ibv_eq_clear_xrc_conn_tag(ep);
 	else
-		ep->conn_setup->tag = connreq->xrc.conn_tag;
+		ep->conn_setup->conn_tag = connreq->xrc.conn_tag;
 
 	assert(ep->conn_state == FI_IBV_XRC_UNCONNECTED ||
 	       ep->conn_state == FI_IBV_XRC_ORIG_CONNECTED);
@@ -408,7 +408,7 @@ err:
 #else /* INCLUDE_VERBS_XRC */
 
 void fi_ibv_set_xrc_cm_data(struct fi_ibv_xrc_cm_data *local, int reciprocal,
-			    uint32_t tag, uint16_t port, uint32_t param)
+			    uint32_t conn_tag, uint16_t port, uint32_t param)
 {
 	/* Code error if this function is called with XRC disabled */
 	assert(0);

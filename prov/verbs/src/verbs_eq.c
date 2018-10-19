@@ -65,7 +65,7 @@ fi_ibv_eq_readerr(struct fid_eq *eq, struct fi_eq_err_entry *entry,
 void fi_ibv_eq_set_xrc_conn_tag(struct fi_ibv_ep *ep)
 {
 	fastlock_acquire(&ep->eq->xrc_idx_lock);
-	ep->conn_setup->tag = (uint32_t)ofi_idx2key(&ep->eq->conn_key_idx,
+	ep->conn_setup->conn_tag = (uint32_t)ofi_idx2key(&ep->eq->conn_key_idx,
 			ofi_idx_insert(ep->eq->conn_key_map, ep));
 	fastlock_release(&ep->eq->xrc_idx_lock);
 }
@@ -76,22 +76,23 @@ void fi_ibv_eq_clear_xrc_conn_tag(struct fi_ibv_ep *ep)
 
 	fastlock_acquire(&ep->eq->xrc_idx_lock);
 	index = ofi_key2idx(&ep->eq->conn_key_idx,
-			    (uint64_t)ep->conn_setup->tag);
+			    (uint64_t)ep->conn_setup->conn_tag);
 	if (!ofi_idx_is_valid(ep->eq->conn_key_map, index))
-	    VERBS_WARN(FI_LOG_EQ, "Invalid XRC connection tag\n");
+	    VERBS_WARN(FI_LOG_EQ, "Invalid XRC connection connection tag\n");
 	else
 		ofi_idx_remove(ep->eq->conn_key_map, index);
-	ep->conn_setup->tag = 0;
+	ep->conn_setup->conn_tag = 0;
 	fastlock_release(&ep->eq->xrc_idx_lock);
 }
 
-struct fi_ibv_ep *fi_ibv_eq_xrc_conn_tag2ep(struct fi_ibv_eq *eq, uint32_t tag)
+struct fi_ibv_ep *fi_ibv_eq_xrc_conn_tag2ep(struct fi_ibv_eq *eq,
+					    uint32_t conn_tag)
 {
 	struct fi_ibv_ep *ep;
 	int index;
 
 	fastlock_acquire(&eq->xrc_idx_lock);
-	index = ofi_key2idx(&eq->conn_key_idx, (uint64_t)tag);
+	index = ofi_key2idx(&eq->conn_key_idx, (uint64_t)conn_tag);
 	ep = ofi_idx_lookup(eq->conn_key_map, index);
 	if (!ep)
 		VERBS_WARN(FI_LOG_FABRIC,
@@ -115,7 +116,8 @@ void fi_ibv_eq_clear_xrc_conn_tag(struct fi_ibv_ep *ep)
 	assert(0);
 }
 
-struct fi_ibv_ep *fi_ibv_eq_xrc_conn_tag2ep(struct fi_ibv_eq *eq, uint32_t tag)
+struct fi_ibv_ep *fi_ibv_eq_xrc_conn_tag2ep(struct fi_ibv_eq *eq,
+					    uint32_t conn_tag)
 {
 	/* Should not be callable if XRC is disabled */
 	assert(0);
@@ -137,7 +139,7 @@ static int fi_ibv_eq_set_xrc_info(struct rdma_cm_event *event,
 		return ret;
 
 	info->is_reciprocal = remote->reciprocal;
-	info->conn_tag = ntohl(remote->tag);
+	info->conn_tag = ntohl(remote->conn_tag);
 	info->port = ntohs(remote->port);
 	info->conn_data = ntohl(remote->param);
 	info->conn_param = event->param.conn;
