@@ -330,17 +330,8 @@ int fi_ibv_process_xrc_connreq(struct fi_ibv_ep *ep,
 
 	/* The reciprocal connection request will go back to the passive
 	 * port indicated by the active side */
-	if (((struct sockaddr *)ep->info->src_addr)->sa_family == AF_INET) {
-		((struct sockaddr_in *)(ep->info->src_addr))->sin_port = 0;
-		((struct sockaddr_in *)(ep->info->dest_addr))->sin_port =
-						htons(connreq->xrc.port);
-	} else if (((struct sockaddr *)ep->info->src_addr)->sa_family ==
-								AF_INET6) {
-		((struct sockaddr_in6 *)(ep->info->src_addr))->sin6_port = 0;
-		((struct sockaddr_in6 *)(ep->info->dest_addr))->sin6_port =
-						htons(connreq->xrc.port);
-	} else
-		assert(0);
+	ofi_addr_set_port(ep->info->src_addr, 0);
+	ofi_addr_set_port(ep->info->dest_addr, connreq->xrc.port);
 
 	ret = fi_ibv_create_ep(NULL, NULL, 0, ep->info, NULL, &ep->id);
 	if (ret) {
