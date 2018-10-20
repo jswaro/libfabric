@@ -520,9 +520,9 @@ int fi_ibv_domain_xrc_cleanup(struct fi_ibv_domain *domain)
 		VERBS_INFO_ERRNO(FI_LOG_DOMAIN, "ibv_close_xrcd", ret);
 		return -ret;
 	}
-	if (domain->xrc.xrcd_fd > 0) {
+	if (domain->xrc.xrcd_fd >= 0) {
 		close(domain->xrc.xrcd_fd);
-		domain->xrc.xrcd_fd = 0;
+		domain->xrc.xrcd_fd = -1;
 	}
 
 	ofi_rbmap_cleanup(domain->xrc.ini_conn_rbmap);
