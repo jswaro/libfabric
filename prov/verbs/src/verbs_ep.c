@@ -147,8 +147,6 @@ static inline void fi_ibv_ep_xrc_close(struct fi_ibv_ep *ep)
 	fi_ibv_ep_destroy_xrc_qp(ep);
 	if (ep->conn_setup)
 		fi_ibv_free_xrc_conn_setup(ep);
-	if (ep->tgt_info)
-		fi_freeinfo(ep->tgt_info);
 }
 
 #else /* INCLUDE_VERBS_XRC */

@@ -601,7 +601,6 @@ struct fi_ibv_ep {
 	struct rdma_cm_id		*tgt_id;
 	struct ibv_qp			*tgt_ibv_qp;
 	enum fi_ibv_xrc_ep_conn_state	conn_state;
-	struct fi_info			*tgt_info;
 	uint32_t			srqn;
 	uint32_t			peer_srqn;
 

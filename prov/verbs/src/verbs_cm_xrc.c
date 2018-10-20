@@ -321,15 +321,8 @@ int fi_ibv_process_xrc_connreq(struct fi_ibv_ep *ep,
 		return -FI_ENOMEM;
 
 	/* This endpoint was created on the passive side of a connection
-	 * request. The connection information will be for the target QP. */
-	ep->tgt_info = fi_dupinfo(ep->info);
-	if (!ep->tgt_info) {
-		ret = -FI_ENOMEM;
-		goto dup_err;
-	}
-
-	/* The reciprocal connection request will go back to the passive
-	 * port indicated by the active side */
+	 * request. The reciprocal connection request will go back to the
+	 * passive port indicated by the active side */
 	ofi_addr_set_port(ep->info->src_addr, 0);
 	ofi_addr_set_port(ep->info->dest_addr, connreq->xrc.port);
 
@@ -345,9 +338,6 @@ int fi_ibv_process_xrc_connreq(struct fi_ibv_ep *ep,
 	return FI_SUCCESS;
 
 create_err:
-	fi_freeinfo(ep->tgt_info);
-	ep->tgt_info = NULL;
-dup_err:
 	free(ep->conn_setup);
 	return ret;
 }
@@ -366,11 +356,6 @@ int fi_ibv_process_xrc_recip_connreq(struct fi_ibv_eq *eq,
 		return -FI_EINVAL;
 
 	ep->tgt_id = connreq->id;
-	ep->tgt_info = fi_dupinfo(entry->info);
-	if (!ep->tgt_info) {
-		VERBS_WARN(FI_LOG_FABRIC, "fi_dupinfo for TGT failed\n");
-		return -FI_EINVAL;
-	}
 	ep->tgt_id->context = &ep->util_ep.ep_fid.fid;
 	ep->info->handle = entry->info->handle;
 
@@ -393,8 +378,6 @@ int fi_ibv_process_xrc_recip_connreq(struct fi_ibv_eq *eq,
 	return -FI_EAGAIN;
 
 err:
-	fi_freeinfo(ep->tgt_info);
-	ep->tgt_info = NULL;
 	return -FI_EAGAIN;
 }
 

@@ -284,14 +284,13 @@ fi_ibv_eq_xrc_connreq_event(struct fi_ibv_eq *eq, struct fi_eq_cm_entry *entry,
 		goto send_reject;
 	}
 	ep->tgt_id = connreq->id;
-	ep->tgt_info = fi_dupinfo(entry->info);
 	ep->tgt_id->context = &ep->util_ep.ep_fid.fid;
 	ep->info->handle = entry->info->handle;
 
 	ret = rdma_migrate_id(ep->tgt_id, ep->eq->channel);
 	if (ret) {
 		VERBS_WARN(FI_LOG_FABRIC, "Could not migrate CM ID\n");
-		goto err;
+		goto send_reject;
 	}
 
 	ret = fi_ibv_accept_xrc(ep, FI_IBV_RECIP_CONN, &cm_data,
@@ -299,14 +298,10 @@ fi_ibv_eq_xrc_connreq_event(struct fi_ibv_eq *eq, struct fi_eq_cm_entry *entry,
 	if (ret) {
 		VERBS_WARN(FI_LOG_FABRIC,
 			   "Reciprocal XRC Accept failed %d\n", ret);
-		goto err;
+		goto send_reject;
 	}
 	/* Event is handled internally and not passed to the application */
 	return -FI_EAGAIN;
-
-err:
-	fi_freeinfo(ep->tgt_info);
-	ep->tgt_info = NULL;
 
 send_reject:
 	if (rdma_reject(connreq->id, *priv_data, *priv_datalen))
