@@ -40,6 +40,9 @@ struct fi_ibv_ini_conn_key {
 	struct fi_ibv_cq	*tx_cq;
 };
 
+static int fi_ibv_process_ini_conn(struct fi_ibv_ep *ep,int reciprocal,
+				   void *param, size_t paramlen);
+
 /*
  * This routine is a work around that creates a QP for the only purpose of
  * reserving the QP number. The QP is not transitioned out of the RESET state.
@@ -213,9 +216,6 @@ static void fi_ibv_create_shutdown_event(struct fi_ibv_ep *ep)
 	fi_ibv_eq_write_event(ep->eq, FI_SHUTDOWN, &entry, sizeof(entry));
 }
 
-static int fi_ibv_process_ini_conn(struct fi_ibv_ep *ep,int reciprocal,
-				   void *param, size_t paramlen);
-
 /* Caller must hold domain:xrc:ini_mgmt_lock */
 void fi_ibv_sched_ini_conn(struct fi_ibv_ini_shared_conn *ini_conn)
 {
@@ -223,62 +223,58 @@ void fi_ibv_sched_ini_conn(struct fi_ibv_ini_shared_conn *ini_conn)
 	enum fi_ibv_ini_qp_state last_state;
 	int ret;
 
-sched_next:
-	if (dlist_empty(&ini_conn->pending_list) ||
-			ini_conn->state == FI_IBV_INI_QP_CONNECTING)
-		return;
-
-	dlist_pop_front(&ini_conn->pending_list, struct fi_ibv_ep,
-			ep, ini_conn_entry);
-
-	last_state = ep->ini_conn->state;
-	if (last_state == FI_IBV_INI_QP_UNCONNECTED) {
-		ret = fi_ibv_create_ini_qp(ep);
-		if (ret) {
-			VERBS_WARN(FI_LOG_FABRIC,
-				   "Failed to create physical INI QP %d\n",
-				   ret);
-			abort();
-		}
-		ep->ini_conn->ini_qp = ep->id->qp;
-		ep->ini_conn->state = FI_IBV_INI_QP_CONNECTING;
-	} else {
-		if (!ep->id->qp) {
-			ep->conn_setup->rsvd_ini_qpn = fi_ibv_reserve_qpn(ep);
-			if (!ep->conn_setup->rsvd_ini_qpn) {
-				VERBS_WARN(FI_LOG_FABRIC,
-					  "rsvd_ini_qpn create err %d\n",
-					  errno);
-				abort();
-			}
-		}
-	}
-
-	assert(ep->ini_conn->ini_qp);
-
-	ep->ibv_qp = ep->ini_conn->ini_qp;
-	dlist_insert_tail(&ep->ini_conn_entry,
-			  &ep->ini_conn->active_list);
-
-	ret = fi_ibv_process_ini_conn(ep, ep->conn_setup->pending_recip,
-				      ep->conn_setup->pending_param,
-				      ep->conn_setup->pending_paramlen);
-	if (ret) {
-		ep->ini_conn->state = last_state;
-		fi_ibv_put_shared_ini_conn(ep);
-
-		/* We need to let the application know that the connect request
-		 * has failed. */
-		fi_ibv_create_shutdown_event(ep);
-	}
-
 	/* Continue to schedule shared connections if the physical connection
 	 * has completed and there are connection requests pending. We could
 	 * implement a throttle here if it is determined that it is better to
 	 * limit the number of outstanding connections. */
-	goto sched_next;
+	while (1) {
+		if (dlist_empty(&ini_conn->pending_list) ||
+				ini_conn->state == FI_IBV_INI_QP_CONNECTING)
+			return;
 
-	return;
+		dlist_pop_front(&ini_conn->pending_list, struct fi_ibv_ep,
+				ep, ini_conn_entry);
+
+		last_state = ep->ini_conn->state;
+		if (last_state == FI_IBV_INI_QP_UNCONNECTED) {
+			ret = fi_ibv_create_ini_qp(ep);
+			if (ret) {
+				VERBS_WARN(FI_LOG_FABRIC, "Failed to create "
+					   "physical INI QP %d\n", ret);
+				abort();
+			}
+			ep->ini_conn->ini_qp = ep->id->qp;
+			ep->ini_conn->state = FI_IBV_INI_QP_CONNECTING;
+		} else {
+			if (!ep->id->qp) {
+				ep->conn_setup->rsvd_ini_qpn =
+						fi_ibv_reserve_qpn(ep);
+				if (!ep->conn_setup->rsvd_ini_qpn) {
+					VERBS_WARN(FI_LOG_FABRIC, "rsvd_ini_qpn"
+						  " create err %d\n", errno);
+					abort();
+				}
+			}
+		}
+
+		assert(ep->ini_conn->ini_qp);
+
+		ep->ibv_qp = ep->ini_conn->ini_qp;
+		dlist_insert_tail(&ep->ini_conn_entry,
+				  &ep->ini_conn->active_list);
+
+		ret = fi_ibv_process_ini_conn(ep, ep->conn_setup->pending_recip,
+					      ep->conn_setup->pending_param,
+					      ep->conn_setup->pending_paramlen);
+		if (ret) {
+			ep->ini_conn->state = last_state;
+			fi_ibv_put_shared_ini_conn(ep);
+
+			/* We need to let the application know that the
+			 * connect request has failed. */
+			fi_ibv_create_shutdown_event(ep);
+		}
+	}
 }
 
 /* Caller must hold domain:xrc:ini_mgmt_lock */
