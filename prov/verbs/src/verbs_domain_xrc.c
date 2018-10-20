@@ -47,12 +47,11 @@ static int fi_ibv_process_ini_conn(struct fi_ibv_ep *ep,int reciprocal,
  * This routine is a work around that creates a QP for the only purpose of
  * reserving the QP number. The QP is not transitioned out of the RESET state.
  */
-struct ibv_qp *fi_ibv_reserve_qpn(struct fi_ibv_ep *ep)
+int fi_ibv_reserve_qpn(struct fi_ibv_ep *ep, struct ibv_qp **qp)
 {
 	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
 	struct fi_ibv_cq *cq = container_of(ep->util_ep.tx_cq,
 					    struct fi_ibv_cq, util_cq);
-	struct ibv_qp *qp;
 	struct ibv_qp_init_attr attr = { 0 };
 	int ret;
 
@@ -66,14 +65,13 @@ struct ibv_qp *fi_ibv_reserve_qpn(struct fi_ibv_ep *ep)
 	attr.recv_cq = cq->cq;
 	attr.qp_type = IBV_QPT_RC;
 
-	qp = ibv_create_qp(domain->pd, &attr);
-	if (!qp) {
+	*qp = ibv_create_qp(domain->pd, &attr);
+	if (!*qp) {
 		ret = -errno;
 		VERBS_INFO_ERRNO(FI_LOG_EP_CTRL,
 				 "Reservation QP create failed", ret);
-		return NULL;
 	}
-	return qp;
+	return FI_SUCCESS;
 }
 
 static int fi_ibv_create_ini_qp(struct fi_ibv_ep *ep)
@@ -247,11 +245,11 @@ void fi_ibv_sched_ini_conn(struct fi_ibv_ini_shared_conn *ini_conn)
 			ep->ini_conn->state = FI_IBV_INI_QP_CONNECTING;
 		} else {
 			if (!ep->id->qp) {
-				ep->conn_setup->rsvd_ini_qpn =
-						fi_ibv_reserve_qpn(ep);
-				if (!ep->conn_setup->rsvd_ini_qpn) {
+				ret = fi_ibv_reserve_qpn(ep,
+						 &ep->conn_setup->rsvd_ini_qpn);
+				if (ret) {
 					VERBS_WARN(FI_LOG_FABRIC, "rsvd_ini_qpn"
-						  " create err %d\n", errno);
+						  " create err %d\n", ret);
 					abort();
 				}
 			}
@@ -325,18 +323,19 @@ int fi_ibv_ep_create_tgt_qp(struct fi_ibv_ep *ep, uint32_t tgt_qpn)
 	struct ibv_qp_init_attr_ex attr_ex;
 	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
 	struct ibv_qp *rsvd_qpn;
+	int ret;
 
 	assert(ep->tgt_id && !ep->tgt_id->qp);
 
 	/* If a target QP number was specified then open that existing
 	 * QP for sharing. */
 	if (tgt_qpn) {
-		rsvd_qpn = fi_ibv_reserve_qpn(ep);
+		ret = fi_ibv_reserve_qpn(ep, &rsvd_qpn);
 		if (!rsvd_qpn) {
 			VERBS_WARN(FI_LOG_FABRIC,
 				   "Create of XRC reserved QPN failed %d\n",
-				   errno);
-			return -errno;
+				   ret);
+			return ret;
 		}
 
 		memset(&open_attr, 0, sizeof(open_attr));

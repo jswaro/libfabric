@@ -696,7 +696,7 @@ void fi_ibv_add_pending_ini_conn(struct fi_ibv_ep *ep, int reciprocal,
 void fi_ibv_sched_ini_conn(struct fi_ibv_ini_shared_conn *ini_conn);
 struct fi_ibv_ini_shared_conn *fi_ibv_get_shared_ini_conn(struct fi_ibv_ep *ep);
 void fi_ibv_put_shared_ini_conn(struct fi_ibv_ep *ep);
-struct ibv_qp *fi_ibv_reserve_qpn(struct fi_ibv_ep *ep);
+int fi_ibv_reserve_qpn(struct fi_ibv_ep *ep, struct ibv_qp **qp);
 
 struct fi_ibv_ep *fi_ibv_conn_tag_to_ep(uint32_t conn_tag);
 int fi_ibv_alloc_conn_tag(struct fi_ibv_ep *ep);
