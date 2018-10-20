@@ -73,11 +73,6 @@ struct ibv_qp *fi_ibv_reserve_qpn(struct fi_ibv_ep *ep)
 	return qp;
 }
 
-void fi_ibv_release_qpn(struct ibv_qp *rsvd_qp)
-{
-	ibv_destroy_qp(rsvd_qp);
-}
-
 static int fi_ibv_create_ini_qp(struct fi_ibv_ep *ep)
 {
 	struct ibv_qp_init_attr_ex attr_ex;
@@ -362,7 +357,7 @@ int fi_ibv_ep_create_tgt_qp(struct fi_ibv_ep *ep, uint32_t tgt_qpn)
 		if (!ep->tgt_ibv_qp) {
 			VERBS_INFO_ERRNO(FI_LOG_EP_CTRL,
 				   "XRC TGT QP, ibv_open_qp()", errno);
-			fi_ibv_release_qpn(rsvd_qpn);
+			ibv_destroy_qp(rsvd_qpn);
 			return -errno;
 		}
 		ep->conn_setup->rsvd_tgt_qpn = rsvd_qpn;

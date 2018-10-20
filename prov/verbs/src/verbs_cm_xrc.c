@@ -119,9 +119,9 @@ void fi_ibv_free_xrc_conn_setup(struct fi_ibv_ep *ep)
 	assert(ep->conn_setup);
 
 	if (ep->conn_setup->rsvd_ini_qpn)
-		fi_ibv_release_qpn(ep->conn_setup->rsvd_ini_qpn);
+		ibv_destroy_qp(ep->conn_setup->rsvd_ini_qpn);
 	if (ep->conn_setup->rsvd_tgt_qpn)
-		fi_ibv_release_qpn(ep->conn_setup->rsvd_tgt_qpn);
+		ibv_destroy_qp(ep->conn_setup->rsvd_tgt_qpn);
 
 	free(ep->conn_setup);
 	ep->conn_setup = NULL;
