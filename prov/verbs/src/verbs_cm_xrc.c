@@ -73,7 +73,9 @@ int fi_ibv_verify_xrc_cm_data(struct fi_ibv_xrc_cm_data *remote,
 #if ENABLE_DEBUG
 void fi_ibv_log_ep_conn(struct fi_ibv_ep *ep, char *desc)
 {
-	struct sockaddr *src_addr, *dst_addr;
+	struct sockaddr *addr;
+	char buf[OFI_ADDRSTRLEN];
+	size_t len = sizeof(buf);
 
 	VERBS_DBG(FI_LOG_FABRIC, "EP %p, %s\n", ep, desc);
 	VERBS_DBG(FI_LOG_FABRIC,
@@ -82,17 +84,16 @@ void fi_ibv_log_ep_conn(struct fi_ibv_ep *ep, char *desc)
 
 	assert(ep->id);
 
-	src_addr = rdma_get_local_addr(ep->id);
-	if (src_addr) {
-		VERBS_DBG(FI_LOG_FABRIC, "EP %p src_addr: %s:%d\n", ep,
-			inet_ntoa(((struct sockaddr_in *)src_addr)->sin_addr),
-			ntohs(((struct sockaddr_in *)src_addr)->sin_port));
+	addr = rdma_get_local_addr(ep->id);
+	if (addr) {
+		ofi_straddr(buf, &len, ep->info->addr_format, addr);
+		VERBS_DBG(FI_LOG_FABRIC, "EP %p src_addr: %s\n", ep, buf);
 	}
-	dst_addr = rdma_get_peer_addr(ep->id);
-	if (dst_addr) {
-		VERBS_DBG(FI_LOG_FABRIC, "EP %p dst_addr: %s:%d\n", ep,
-			inet_ntoa(((struct sockaddr_in *)dst_addr)->sin_addr),
-			ntohs(((struct sockaddr_in *)dst_addr)->sin_port));
+	addr = rdma_get_peer_addr(ep->id);
+	if (addr) {
+		len = sizeof(buf);
+		ofi_straddr(buf, &len, ep->info->addr_format, addr);
+		VERBS_DBG(FI_LOG_FABRIC, "EP %p dst_addr: %s\n", ep, buf);
 	}
 
 	if (ep->ibv_qp) {
@@ -141,22 +142,22 @@ int fi_ibv_connect_xrc(struct fi_ibv_ep *ep, struct sockaddr *addr,
 		       int reciprocal, void *param, size_t paramlen)
 {
 	struct fi_ibv_domain *domain = fi_ibv_msg_ep_to_domain(ep);
-	struct sockaddr *src_addr, *dst_addr;
+	struct sockaddr *peer_addr;
+	char buf[OFI_ADDRSTRLEN];
+	size_t len = sizeof(buf);
 	int ret;
 
 	assert(ep->id && !ep->ibv_qp && !ep->ini_conn);
 
-	src_addr = rdma_get_local_addr(ep->id);
-	if (src_addr) {
-		VERBS_DBG(FI_LOG_FABRIC, "XRC connect src_addr: %s:%d\n",
-			inet_ntoa(((struct sockaddr_in *)src_addr)->sin_addr),
-			ntohs(((struct sockaddr_in *)src_addr)->sin_port));
+	peer_addr = rdma_get_local_addr(ep->id);
+	if (peer_addr) {
+		ofi_straddr(buf, &len, ep->info->addr_format, peer_addr);
+		VERBS_DBG(FI_LOG_FABRIC, "XRC connect src_addr: %s\n", buf);
 	}
-	dst_addr = rdma_get_peer_addr(ep->id);
-	if (dst_addr) {
-		VERBS_DBG(FI_LOG_FABRIC, "XRC connect dst_addr: %s:%d\n",
-			  inet_ntoa(((struct sockaddr_in *)dst_addr)->sin_addr),
-			  ntohs(((struct sockaddr_in *)dst_addr)->sin_port));
+	peer_addr = rdma_get_peer_addr(ep->id);
+	if (peer_addr) {
+		ofi_straddr(buf, &len, ep->info->addr_format, peer_addr);
+		VERBS_DBG(FI_LOG_FABRIC, "XRC connect dst_addr: %s\n", buf);
 	}
 
 	if (!reciprocal) {
@@ -244,23 +245,24 @@ void fi_ibv_ep_tgt_conn_done(struct fi_ibv_ep *ep)
 int fi_ibv_accept_xrc(struct fi_ibv_ep *ep, int reciprocal,
 		      void *param, size_t paramlen)
 {
-	struct sockaddr *src_addr, *dst_addr;
+	struct sockaddr *addr;
 	struct fi_ibv_connreq *connreq;
 	struct rdma_conn_param conn_param = { 0 };
 	struct fi_ibv_xrc_cm_data *cm_data = param;
+	char buf[OFI_ADDRSTRLEN];
+	size_t len = sizeof(buf);
 	int ret;
 
-	src_addr = rdma_get_local_addr(ep->tgt_id);
-	if (src_addr) {
-		VERBS_INFO(FI_LOG_CORE, "src_addr: %s:%d\n",
-			inet_ntoa(((struct sockaddr_in *)src_addr)->sin_addr),
-			ntohs(((struct sockaddr_in *)src_addr)->sin_port));
+	addr = rdma_get_local_addr(ep->tgt_id);
+	if (addr) {
+		ofi_straddr(buf, &len, ep->info->addr_format, addr);
+		VERBS_INFO(FI_LOG_CORE, "src_addr: %s\n", buf);
 	}
-	dst_addr = rdma_get_peer_addr(ep->tgt_id);
-	if (dst_addr) {
-		VERBS_INFO(FI_LOG_CORE, "dst_addr: %s:%d\n",
-			inet_ntoa(((struct sockaddr_in *)dst_addr)->sin_addr),
-			ntohs(((struct sockaddr_in *)dst_addr)->sin_port));
+	addr = rdma_get_peer_addr(ep->tgt_id);
+	if (addr) {
+		len = sizeof(buf);
+		ofi_straddr(buf, &len, ep->info->addr_format, addr);
+		VERBS_INFO(FI_LOG_CORE, "dst_addr: %s\n", buf);
 	}
 
 	connreq = container_of(ep->info->handle, struct fi_ibv_connreq,

@@ -735,16 +735,15 @@ int fi_ibv_open_ep(struct fid_domain *domain, struct fi_info *info,
 	struct fi_ibv_pep *pep;
 	struct fi_info *fi;
 	int ret;
-
-	size_t len = OFI_ADDRSTRLEN;
-	char buf[len];
+	char buf[OFI_ADDRSTRLEN];
+	size_t len = sizeof(buf);
 
 	if (info->src_addr) {
 		ofi_straddr(buf, &len, info->addr_format, info->src_addr);
 		VERBS_DBG(FI_LOG_FABRIC, "Open_EP src addr: %s\n", buf);
 	}
 	if (info->dest_addr) {
-		len = OFI_ADDRSTRLEN;
+		len = sizeof(buf);
 		ofi_straddr(buf, &len, info->addr_format, info->dest_addr);
 		VERBS_DBG(FI_LOG_FABRIC, "Open_EP dest addr: %s\n", buf);
 	}
