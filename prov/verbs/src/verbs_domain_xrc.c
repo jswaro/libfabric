@@ -187,10 +187,9 @@ void fi_ibv_put_shared_ini_conn(struct fi_ibv_ep *ep)
 		ofi_rbmap_delete(domain->xrc.ini_conn_rbmap, node);
 		free(ini_conn->peer_addr);
 		free(ini_conn);
-		return;
+	} else {
+		fi_ibv_sched_ini_conn(ini_conn);
 	}
-
-	fi_ibv_sched_ini_conn(ini_conn);
 }
 
 /* Caller must hold domain:xrc:ini_mgmt_lock */
