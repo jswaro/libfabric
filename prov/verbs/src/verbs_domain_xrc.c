@@ -40,29 +40,13 @@ struct fi_ibv_ini_conn_key {
 	struct fi_ibv_cq	*tx_cq;
 };
 
-struct fi_ibv_domain *fi_ibv_msg_ep_to_domain(struct fi_ibv_ep *ep)
-{
-	struct fi_ibv_domain *domain = NULL;
-
-	if (ep->util_ep.tx_cq)
-		domain = container_of(ep->util_ep.tx_cq->domain,
-				      struct fi_ibv_domain, util_domain);
-	else if (ep->util_ep.rx_cq)
-		domain = container_of(ep->util_ep.rx_cq->domain,
-				      struct fi_ibv_domain, util_domain);
-
-	/* Only valid to call this function after CQ(s) are bound */
-	assert(domain);
-	return domain;
-}
-
 /*
  * This routine is a work around that creates a QP for the only purpose of
  * reserving the QP number. The QP is not transitioned out of the RESET state.
  */
 struct ibv_qp *fi_ibv_reserve_qpn(struct fi_ibv_ep *ep)
 {
-	struct fi_ibv_domain *domain = fi_ibv_msg_ep_to_domain(ep);
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
 	struct fi_ibv_cq *cq = container_of(ep->util_ep.tx_cq,
 					    struct fi_ibv_cq, util_cq);
 	struct ibv_qp *qp;
@@ -97,7 +81,7 @@ void fi_ibv_release_qpn(struct ibv_qp *rsvd_qp)
 static int fi_ibv_create_ini_qp(struct fi_ibv_ep *ep)
 {
 	struct ibv_qp_init_attr_ex attr_ex;
-	struct fi_ibv_domain *domain = fi_ibv_msg_ep_to_domain(ep);
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
 	int ret;
 
 	fi_ibv_msg_ep_get_qp_attr(ep, NULL,
@@ -127,7 +111,7 @@ static inline void fi_ibv_set_ini_conn_key(struct fi_ibv_ep *ep,
 /* Caller must hold domain:xrc:ini_mgmt_lock */
 struct fi_ibv_ini_shared_conn *fi_ibv_get_shared_ini_conn(struct fi_ibv_ep *ep)
 {
-	struct fi_ibv_domain *domain = fi_ibv_msg_ep_to_domain(ep);
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
 	struct fi_ibv_ini_conn_key key;
 	struct fi_ibv_ini_shared_conn *ini_conn;
 	struct ofi_rbnode *node;
@@ -182,7 +166,7 @@ insert_err:
 /* Caller must hold domain:xrc:ini_mgmt_lock */
 void fi_ibv_put_shared_ini_conn(struct fi_ibv_ep *ep)
 {
-	struct fi_ibv_domain *domain = fi_ibv_msg_ep_to_domain(ep);
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
 	struct fi_ibv_ini_shared_conn *ini_conn = ep->ini_conn;
 	struct fi_ibv_ini_conn_key key;
 	struct ofi_rbnode *node;
@@ -349,7 +333,7 @@ int fi_ibv_ep_create_tgt_qp(struct fi_ibv_ep *ep, uint32_t tgt_qpn)
 {
 	struct ibv_qp_open_attr open_attr;
 	struct ibv_qp_init_attr_ex attr_ex;
-	struct fi_ibv_domain *domain = fi_ibv_msg_ep_to_domain(ep);
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
 	struct ibv_qp *rsvd_qpn;
 
 	assert(ep->tgt_id && !ep->tgt_id->qp);
@@ -427,7 +411,7 @@ static int fi_ibv_put_tgt_qp(struct fi_ibv_ep *ep)
 
 int fi_ibv_ep_destroy_xrc_qp(struct fi_ibv_ep *ep)
 {
-	struct fi_ibv_domain *domain = fi_ibv_msg_ep_to_domain(ep);
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
 
 	if (ep->ibv_qp) {
 		fastlock_acquire(&domain->xrc.ini_mgmt_lock);

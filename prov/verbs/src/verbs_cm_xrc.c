@@ -141,7 +141,7 @@ void fi_ibv_free_xrc_conn_setup(struct fi_ibv_ep *ep)
 int fi_ibv_connect_xrc(struct fi_ibv_ep *ep, struct sockaddr *addr,
 		       int reciprocal, void *param, size_t paramlen)
 {
-	struct fi_ibv_domain *domain = fi_ibv_msg_ep_to_domain(ep);
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
 	struct sockaddr *peer_addr;
 	char buf[OFI_ADDRSTRLEN];
 	size_t len = sizeof(buf);
@@ -189,7 +189,7 @@ int fi_ibv_connect_xrc(struct fi_ibv_ep *ep, struct sockaddr *addr,
 void fi_ibv_ep_ini_conn_done(struct fi_ibv_ep *ep, uint32_t peer_srqn,
 			     uint32_t tgt_qpn)
 {
-	struct fi_ibv_domain *domain = fi_ibv_msg_ep_to_domain(ep);
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
 
 	assert(ep->id && ep->ini_conn);
 
@@ -219,7 +219,7 @@ void fi_ibv_ep_ini_conn_done(struct fi_ibv_ep *ep, uint32_t peer_srqn,
 
 void fi_ibv_ep_ini_conn_rejected(struct fi_ibv_ep *ep)
 {
-	struct fi_ibv_domain *domain = fi_ibv_msg_ep_to_domain(ep);
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
 
 	assert(ep->id && ep->ini_conn);
 

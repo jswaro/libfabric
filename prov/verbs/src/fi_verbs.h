@@ -347,9 +347,6 @@ struct fi_ibv_domain {
 	struct fi_ibv_mem_notifier	*notifier;
 };
 
-struct fi_ibv_ep;
-struct fi_ibv_domain *fi_ibv_msg_ep_to_domain(struct fi_ibv_ep *ep);
-
 struct fi_ibv_cq;
 typedef void (*fi_ibv_cq_read_entry)(struct ibv_wc *wc, void *buf);
 
@@ -625,6 +622,12 @@ int fi_ibv_create_ep(const char *node, const char *service,
 void fi_ibv_destroy_ep(struct rdma_addrinfo *rai, struct rdma_cm_id **id);
 int fi_ibv_dgram_av_open(struct fid_domain *domain_fid, struct fi_av_attr *attr,
 			 struct fid_av **av_fid, void *context);
+static inline
+struct fi_ibv_domain *fi_ibv_ep_to_domain(struct fi_ibv_ep *ep)
+{
+	return container_of(ep->util_ep.domain, struct fi_ibv_domain,
+			    util_domain);
+}
 
 struct fi_ops_atomic fi_ibv_msg_ep_atomic_ops;
 struct fi_ops_cm fi_ibv_msg_ep_cm_ops;

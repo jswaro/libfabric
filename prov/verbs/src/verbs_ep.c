@@ -480,8 +480,6 @@ void fi_ibv_msg_ep_get_qp_attr(struct fi_ibv_ep *ep,
 			       struct fi_ibv_domain **domain,
 			       struct ibv_qp_init_attr *attr)
 {
-	struct fi_ibv_domain *_domain;
-
 	if (ep->util_ep.tx_cq) {
 		struct fi_ibv_cq *cq = container_of(ep->util_ep.tx_cq,
 						    struct fi_ibv_cq, util_cq);
@@ -489,15 +487,11 @@ void fi_ibv_msg_ep_get_qp_attr(struct fi_ibv_ep *ep,
 		attr->cap.max_send_wr = ep->info->tx_attr->size;
 		attr->cap.max_send_sge = ep->info->tx_attr->iov_limit;
 		attr->send_cq = cq->cq;
-		_domain = container_of(ep->util_ep.tx_cq->domain, struct fi_ibv_domain,
-				      util_domain);
 	} else {
 		struct fi_ibv_cq *cq =
 			container_of(ep->util_ep.rx_cq, struct fi_ibv_cq, util_cq);
 
 		attr->send_cq = cq->cq;
-		_domain = container_of(ep->util_ep.rx_cq->domain, struct fi_ibv_domain,
-				      util_domain);
 	}
 
 	if (ep->util_ep.rx_cq) {
@@ -522,8 +516,9 @@ void fi_ibv_msg_ep_get_qp_attr(struct fi_ibv_ep *ep,
 		/* Recieve posts are done to SRQ not QP RQ */
 		attr->cap.max_recv_wr = 0;
 	}
+
 	if (domain)
-		*domain = _domain;
+		*domain = fi_ibv_ep_to_domain(ep);
 }
 
 
