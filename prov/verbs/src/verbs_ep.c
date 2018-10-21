@@ -561,12 +561,14 @@ static int fi_ibv_ep_enable(struct fid_ep *ep_fid)
 	switch (ep->util_ep.type) {
 	case FI_EP_MSG:
 		if (ep->srq_ep) {
-			/* Override the default ops to prevent the user from posting WRs to a
-			 * QP where a SRQ is attached to */
-			ep->util_ep.ep_fid.msg = &fi_ibv_msg_srq_ep_msg_ops;
-
-			if (domain->use_xrc)
+			/* Override the default ops to prevent the user from
+			 * posting WRs to a QP where a SRQ is attached to it */
+			if (domain->use_xrc) {
+				ep->util_ep.ep_fid.msg = &fi_ibv_msg_srq_xrc_ep_msg_ops;
 				return fi_ibv_ep_enable_xrc(ep);
+			} else {
+				ep->util_ep.ep_fid.msg = &fi_ibv_msg_srq_ep_msg_ops;
+			}
 		} else if (fi_ibv_using_xrc()) {
 			VERBS_WARN(FI_LOG_EP_CTRL, "XRC EP_MSG not bound "
 				   "to srx_context\n");
@@ -793,10 +795,10 @@ int fi_ibv_open_ep(struct fid_domain *domain, struct fi_info *info,
 	case FI_EP_MSG:
 		if (dom->use_xrc) {
 			if (dom->util_domain.threading == FI_THREAD_SAFE) {
-				ep->util_ep.ep_fid.msg = &fi_ibv_msg_ep_msg_ops_ts;
+				ep->util_ep.ep_fid.msg = &fi_ibv_msg_xrc_ep_msg_ops_ts;
 				ep->util_ep.ep_fid.rma = &fi_ibv_msg_xrc_ep_rma_ops_ts;
 			} else {
-				ep->util_ep.ep_fid.msg = &fi_ibv_msg_ep_msg_ops;
+				ep->util_ep.ep_fid.msg = &fi_ibv_msg_xrc_ep_msg_ops;
 				ep->util_ep.ep_fid.rma = &fi_ibv_msg_xrc_ep_rma_ops;
 			}
 			ep->util_ep.ep_fid.cm = &fi_ibv_msg_xrc_ep_cm_ops;
@@ -806,7 +808,7 @@ int fi_ibv_open_ep(struct fid_domain *domain, struct fi_info *info,
 				ep->util_ep.ep_fid.rma = &fi_ibv_msg_ep_rma_ops_ts;
 			} else {
 				ep->util_ep.ep_fid.msg = &fi_ibv_msg_ep_msg_ops;
-				ep->util_ep.ep_fid.rma = &fi_ibv_msg_ep_rma_ops;		
+				ep->util_ep.ep_fid.rma = &fi_ibv_msg_ep_rma_ops;
 			}
 			ep->util_ep.ep_fid.cm = &fi_ibv_msg_ep_cm_ops;
 		}

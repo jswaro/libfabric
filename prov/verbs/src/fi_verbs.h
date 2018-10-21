@@ -637,12 +637,14 @@ struct fi_ops_cm fi_ibv_msg_ep_cm_ops;
 struct fi_ops_cm fi_ibv_msg_xrc_ep_cm_ops;
 struct fi_ops_msg fi_ibv_msg_ep_msg_ops_ts;
 struct fi_ops_msg fi_ibv_msg_ep_msg_ops;
+struct fi_ops_msg fi_ibv_msg_xrc_ep_msg_ops_ts;
+struct fi_ops_msg fi_ibv_msg_xrc_ep_msg_ops;
 struct fi_ops_rma fi_ibv_msg_ep_rma_ops_ts;
 struct fi_ops_rma fi_ibv_msg_ep_rma_ops;
 struct fi_ops_rma fi_ibv_msg_xrc_ep_rma_ops_ts;
 struct fi_ops_rma fi_ibv_msg_xrc_ep_rma_ops;
 struct fi_ops_msg fi_ibv_msg_srq_ep_msg_ops;
-struct fi_ops_msg fi_ibv_msg_xrc_srq_ep_msg_ops;
+struct fi_ops_msg fi_ibv_msg_srq_xrc_ep_msg_ops;
 
 #define FI_IBV_XRC_VERSION	1
 
