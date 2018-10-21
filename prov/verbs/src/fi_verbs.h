@@ -272,18 +272,21 @@ struct fi_ibv_eq {
 	struct fi_eq_err_entry	err;
 	int			epfd;
 
-	/* The connection key map is used during the XRC connection process
-	 * to map an XRC reciprocal connection request back to the active
-	 * endpoint that initiated the original connection request. */
-	fastlock_t		xrc_idx_lock;
-	struct ofi_key_idx	conn_key_idx;
-	struct indexer		*conn_key_map;
+	struct {
+		/* The connection key map is used during the XRC connection
+		 * process to map an XRC reciprocal connection request back
+		 * to the active endpoint that initiated the original
+		 * connection request. */
+		fastlock_t		idx_lock;
+		struct ofi_key_idx	conn_key_idx;
+		struct indexer		*conn_key_map;
 
-	/* TODO: This is limiting and restricts applications to using a single
-	 * listener per EQ. While sufficient for RXM we should consider using
-	 * an internal PEP listener for handling the internally processed
-	 * reciprocal connections. */
-	uint16_t		pep_port;
+		/* TODO: This is limiting and restricts applications to using
+		 * a single listener per EQ. While sufficient for RXM we should
+		 * consider using an internal PEP listener for handling the
+		 * internally processed reciprocal connections. */
+		uint16_t		pep_port;
+	} xrc;
 };
 
 int fi_ibv_eq_open(struct fid_fabric *fabric, struct fi_eq_attr *attr,

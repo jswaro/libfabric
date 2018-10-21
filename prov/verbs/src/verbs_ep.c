@@ -898,12 +898,12 @@ static int fi_ibv_pep_bind(fid_t fid, struct fid *bfid, uint64_t flags)
 	 * a more general solution.
 	 */
 	if (fi_ibv_using_xrc()) {
-	       if (pep->eq->pep_port) {
+	       if (pep->eq->xrc.pep_port) {
 			VERBS_WARN(FI_LOG_EP_CTRL,
 				   "XRC limits EQ binding to a single PEP\n");
 			return -FI_EINVAL;
 	       }
-	       pep->eq->pep_port = ntohs(rdma_get_src_port(pep->id));
+	       pep->eq->xrc.pep_port = ntohs(rdma_get_src_port(pep->id));
 	}
 
 	ret = rdma_migrate_id(pep->id, pep->eq->channel);
