@@ -791,17 +791,25 @@ int fi_ibv_open_ep(struct fid_domain *domain, struct fi_info *info,
 
 	switch (info->ep_attr->type) {
 	case FI_EP_MSG:
-		if (dom->util_domain.threading == FI_THREAD_SAFE) {
-			ep->util_ep.ep_fid.msg = &fi_ibv_msg_ep_msg_ops_ts;
-			ep->util_ep.ep_fid.rma = &fi_ibv_msg_ep_rma_ops_ts;
-		} else {
-			ep->util_ep.ep_fid.msg = &fi_ibv_msg_ep_msg_ops;
-			ep->util_ep.ep_fid.rma = &fi_ibv_msg_ep_rma_ops;		
-		}
-		if (dom->use_xrc)
+		if (dom->use_xrc) {
+			if (dom->util_domain.threading == FI_THREAD_SAFE) {
+				ep->util_ep.ep_fid.msg = &fi_ibv_msg_ep_msg_ops_ts;
+				ep->util_ep.ep_fid.rma = &fi_ibv_msg_xrc_ep_rma_ops_ts;
+			} else {
+				ep->util_ep.ep_fid.msg = &fi_ibv_msg_ep_msg_ops;
+				ep->util_ep.ep_fid.rma = &fi_ibv_msg_xrc_ep_rma_ops;
+			}
 			ep->util_ep.ep_fid.cm = &fi_ibv_msg_xrc_ep_cm_ops;
-		else
+		} else {
+			if (dom->util_domain.threading == FI_THREAD_SAFE) {
+				ep->util_ep.ep_fid.msg = &fi_ibv_msg_ep_msg_ops_ts;
+				ep->util_ep.ep_fid.rma = &fi_ibv_msg_ep_rma_ops_ts;
+			} else {
+				ep->util_ep.ep_fid.msg = &fi_ibv_msg_ep_msg_ops;
+				ep->util_ep.ep_fid.rma = &fi_ibv_msg_ep_rma_ops;		
+			}
 			ep->util_ep.ep_fid.cm = &fi_ibv_msg_ep_cm_ops;
+		}
 		ep->util_ep.ep_fid.atomic = &fi_ibv_msg_ep_atomic_ops;
 
 		if (!info->handle) {
