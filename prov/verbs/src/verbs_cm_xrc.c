@@ -70,15 +70,17 @@ int fi_ibv_verify_xrc_cm_data(struct fi_ibv_xrc_cm_data *remote,
 	return FI_SUCCESS;
 }
 
-#if ENABLE_DEBUG
 void fi_ibv_log_ep_conn(struct fi_ibv_xrc_ep *ep, char *desc)
 {
 	struct sockaddr *addr;
 	char buf[OFI_ADDRSTRLEN];
 	size_t len = sizeof(buf);
 
-	VERBS_DBG(FI_LOG_FABRIC, "EP %p, %s\n", ep, desc);
-	VERBS_DBG(FI_LOG_FABRIC,
+	if (!fi_log_enabled(&fi_ibv_prov, FI_LOG_INFO, FI_LOG_FABRIC))
+		return;
+
+	VERBS_INFO(FI_LOG_FABRIC, "EP %p, %s\n", ep, desc);
+	VERBS_INFO(FI_LOG_FABRIC,
 		  "EP %p, CM ID %p, TGT CM ID %p, SRQN %d Peer SRQN %d\n",
 		  ep, ep->base_ep.id, ep->tgt_id, ep->srqn, ep->peer_srqn);
 
@@ -87,32 +89,31 @@ void fi_ibv_log_ep_conn(struct fi_ibv_xrc_ep *ep, char *desc)
 	addr = rdma_get_local_addr(ep->base_ep.id);
 	if (addr) {
 		ofi_straddr(buf, &len, ep->base_ep.info->addr_format, addr);
-		VERBS_DBG(FI_LOG_FABRIC, "EP %p src_addr: %s\n", ep, buf);
+		VERBS_INFO(FI_LOG_FABRIC, "EP %p src_addr: %s\n", ep, buf);
 	}
 	addr = rdma_get_peer_addr(ep->base_ep.id);
 	if (addr) {
 		len = sizeof(buf);
 		ofi_straddr(buf, &len, ep->base_ep.info->addr_format, addr);
-		VERBS_DBG(FI_LOG_FABRIC, "EP %p dst_addr: %s\n", ep, buf);
+		VERBS_INFO(FI_LOG_FABRIC, "EP %p dst_addr: %s\n", ep, buf);
 	}
 
 	if (ep->base_ep.ibv_qp) {
-		VERBS_DBG(FI_LOG_FABRIC, "EP %p, INI QP Num %d\n",
+		VERBS_INFO(FI_LOG_FABRIC, "EP %p, INI QP Num %d\n",
 			  ep, ep->base_ep.ibv_qp->qp_num);
-		VERBS_DBG(FI_LOG_FABRIC, "EP %p, Remote TGT QP Num %d\n", ep,
+		VERBS_INFO(FI_LOG_FABRIC, "EP %p, Remote TGT QP Num %d\n", ep,
 			  ep->ini_conn->tgt_qpn);
 	}
 	if (ep->tgt_ibv_qp)
-		VERBS_DBG(FI_LOG_FABRIC, "EP %p, TGT QP Num %d\n",
+		VERBS_INFO(FI_LOG_FABRIC, "EP %p, TGT QP Num %d\n",
 			  ep, ep->tgt_ibv_qp->qp_num);
 	if (ep->conn_setup && ep->conn_setup->rsvd_ini_qpn)
-		VERBS_DBG(FI_LOG_FABRIC, "EP %p, Reserved INI QPN %d\n",
+		VERBS_INFO(FI_LOG_FABRIC, "EP %p, Reserved INI QPN %d\n",
 			  ep, ep->conn_setup->rsvd_ini_qpn->qp_num);
 	if (ep->conn_setup && ep->conn_setup->rsvd_tgt_qpn)
-		VERBS_DBG(FI_LOG_FABRIC, "EP %p, Reserved TGT QPN %d\n",
+		VERBS_INFO(FI_LOG_FABRIC, "EP %p, Reserved TGT QPN %d\n",
 			  ep, ep->conn_setup->rsvd_tgt_qpn->qp_num);
 }
-#endif
 
 void fi_ibv_free_xrc_conn_setup(struct fi_ibv_xrc_ep *ep)
 {
@@ -196,9 +197,7 @@ void fi_ibv_ep_ini_conn_done(struct fi_ibv_xrc_ep *ep, uint32_t peer_srqn,
 	assert(ep->base_ep.id && ep->ini_conn);
 
 	fastlock_acquire(&domain->xrc.ini_mgmt_lock);
-#if ENABLE_DEBUG
-	fi_ibv_log_ep_conn(ep, "INI Connection Done");
-#endif
+
 	assert(ep->ini_conn->state == FI_IBV_INI_QP_CONNECTING ||
 	       ep->ini_conn->state == FI_IBV_INI_QP_CONNECTED);
 
@@ -215,6 +214,7 @@ void fi_ibv_ep_ini_conn_done(struct fi_ibv_xrc_ep *ep, uint32_t peer_srqn,
 			  ep->ini_conn->tgt_qpn);
 	}
 
+	fi_ibv_log_ep_conn(ep, "INI Connection Done");
 	fi_ibv_sched_ini_conn(ep->ini_conn);
 	fastlock_release(&domain->xrc.ini_mgmt_lock);
 }
@@ -226,18 +226,16 @@ void fi_ibv_ep_ini_conn_rejected(struct fi_ibv_xrc_ep *ep)
 	assert(ep->base_ep.id && ep->ini_conn);
 
 	fastlock_acquire(&domain->xrc.ini_mgmt_lock);
-#if ENABLE_DEBUG
 	fi_ibv_log_ep_conn(ep, "INI Connection Rejected");
-#endif
+
 	fi_ibv_put_shared_ini_conn(ep);
 	fastlock_release(&domain->xrc.ini_mgmt_lock);
 }
 
 void fi_ibv_ep_tgt_conn_done(struct fi_ibv_xrc_ep *ep)
 {
-#if ENABLE_DEBUG
 	fi_ibv_log_ep_conn(ep, "TGT Connection Done\n");
-#endif
+
 	if (ep->tgt_id->qp) {
 		assert(ep->tgt_ibv_qp == ep->tgt_id->qp);
 		ep->tgt_id->qp = NULL;
