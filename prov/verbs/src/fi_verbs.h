@@ -316,16 +316,6 @@ typedef int(*fi_ibv_mr_dereg_cb)(struct fi_ibv_mem_desc *md);
 
 struct fi_ibv_mem_notifier;
 
-struct fi_ibv_xrc_domain {
-	int				xrcd_fd;
-	struct ibv_xrcd			*xrcd;
-
-	/* The domain maintains a RBTree for mapping an endpoint destination
-	 * addresses to physical XRC INI QP connected to that host. */
-	fastlock_t			ini_mgmt_lock;
-	struct ofi_rbmap		*ini_conn_rbmap;
-};
-
 struct fi_ibv_domain {
 	struct util_domain		util_domain;
 	struct ibv_context		*verbs;
@@ -337,9 +327,19 @@ struct fi_ibv_domain {
 	struct fi_ibv_eq		*eq;
 	uint64_t			eq_flags;
 
-	/* Indicates that MSG endpoints should use the XRC transport */
+	/* Indicates that MSG endpoints should use the XRC transport.
+	 * TODO: Move selection of XRC/RC to endpoint info from domain */
 	int				use_xrc;
-	struct fi_ibv_xrc_domain	xrc;
+	struct {
+		int			xrcd_fd;
+		struct ibv_xrcd		*xrcd;
+
+		/* The domain maintains a RBTree for mapping an endpoint
+		 * destination addresses to physical XRC INI QP connected
+		 * to that host. */
+		fastlock_t		ini_mgmt_lock;
+		struct ofi_rbmap	*ini_conn_rbmap;
+	} xrc ;
 
 	/* MR stuff */
 	int				use_odp;
