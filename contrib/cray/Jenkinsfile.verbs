@@ -330,7 +330,10 @@ pipeline {
                     recipientProviders: providers,
                     replyTo: '$DEFAULT_REPLYTO',
                     to: defaultMailer
-             }
+            }
+        }
+        always {
+            slackSend "Build Completed - ${env.JOB_NAME} ${env.BUILD_NUMBER} Result: ${currentBuild.result} (<${env.BUILD_URL}|Open>)"
         }
     }
     environment {
