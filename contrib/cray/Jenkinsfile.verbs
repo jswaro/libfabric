@@ -331,9 +331,15 @@ pipeline {
                     replyTo: '$DEFAULT_REPLYTO',
                     to: defaultMailer
             }
-        }
-        always {
-            slackSend "Build Completed - ${env.JOB_NAME} ${env.BUILD_NUMBER} Result: ${currentBuild.result} (<${env.BUILD_URL}|Open>)"
+            script {
+                if (env.BRANCH_NAME == 'master') {
+                    if (currentBuild.result == 'SUCCESS') { 
+                        slackSend "PASS - ${env.JOB_NAME} Build # ${env.BUILD_NUMBER} (<${env.BUILD_URL}|Open>)"
+                    } else {
+                        slackSend "FAIL - ${env.JOB_NAME} Build # ${env.BUILD_NUMBER} REASON: ${currentBuild.result} (<${env.BUILD_URL}|Open>)"
+                    }
+                }
+            }
         }
     }
     environment {
