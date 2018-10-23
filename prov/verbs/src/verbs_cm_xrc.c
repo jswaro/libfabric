@@ -33,8 +33,8 @@
 #include "config.h"
 #include "fi_verbs.h"
 
-#ifdef INCLUDE_VERBS_XRC
-void fi_ibv_save_priv_data(struct fi_ibv_ep *ep, const void *data, size_t len)
+void fi_ibv_save_priv_data(struct fi_ibv_xrc_ep *ep, const void *data,
+			   size_t len)
 {
 	ep->conn_setup->event_len = MIN(sizeof(ep->conn_setup->event_data),
 					len);
@@ -71,7 +71,7 @@ int fi_ibv_verify_xrc_cm_data(struct fi_ibv_xrc_cm_data *remote,
 }
 
 #if ENABLE_DEBUG
-void fi_ibv_log_ep_conn(struct fi_ibv_ep *ep, char *desc)
+void fi_ibv_log_ep_conn(struct fi_ibv_xrc_ep *ep, char *desc)
 {
 	struct sockaddr *addr;
 	char buf[OFI_ADDRSTRLEN];
@@ -80,25 +80,25 @@ void fi_ibv_log_ep_conn(struct fi_ibv_ep *ep, char *desc)
 	VERBS_DBG(FI_LOG_FABRIC, "EP %p, %s\n", ep, desc);
 	VERBS_DBG(FI_LOG_FABRIC,
 		  "EP %p, CM ID %p, TGT CM ID %p, SRQN %d Peer SRQN %d\n",
-		  ep, ep->id, ep->tgt_id, ep->srqn, ep->peer_srqn);
+		  ep, ep->base_ep.id, ep->tgt_id, ep->srqn, ep->peer_srqn);
 
-	assert(ep->id);
+	assert(ep->base_ep.id);
 
-	addr = rdma_get_local_addr(ep->id);
+	addr = rdma_get_local_addr(ep->base_ep.id);
 	if (addr) {
-		ofi_straddr(buf, &len, ep->info->addr_format, addr);
+		ofi_straddr(buf, &len, ep->base_ep.info->addr_format, addr);
 		VERBS_DBG(FI_LOG_FABRIC, "EP %p src_addr: %s\n", ep, buf);
 	}
-	addr = rdma_get_peer_addr(ep->id);
+	addr = rdma_get_peer_addr(ep->base_ep.id);
 	if (addr) {
 		len = sizeof(buf);
-		ofi_straddr(buf, &len, ep->info->addr_format, addr);
+		ofi_straddr(buf, &len, ep->base_ep.info->addr_format, addr);
 		VERBS_DBG(FI_LOG_FABRIC, "EP %p dst_addr: %s\n", ep, buf);
 	}
 
-	if (ep->ibv_qp) {
+	if (ep->base_ep.ibv_qp) {
 		VERBS_DBG(FI_LOG_FABRIC, "EP %p, INI QP Num %d\n",
-			  ep, ep->ibv_qp->qp_num);
+			  ep, ep->base_ep.ibv_qp->qp_num);
 		VERBS_DBG(FI_LOG_FABRIC, "EP %p, Remote TGT QP Num %d\n", ep,
 			  ep->ini_conn->tgt_qpn);
 	}
@@ -114,7 +114,7 @@ void fi_ibv_log_ep_conn(struct fi_ibv_ep *ep, char *desc)
 }
 #endif
 
-void fi_ibv_free_xrc_conn_setup(struct fi_ibv_ep *ep)
+void fi_ibv_free_xrc_conn_setup(struct fi_ibv_xrc_ep *ep)
 {
 	assert(ep->conn_setup);
 
@@ -128,9 +128,9 @@ void fi_ibv_free_xrc_conn_setup(struct fi_ibv_ep *ep)
 
 	/*Free RDMA CM IDs releasing their associated resources, RDMA CM
 	 * is used for connection setup only with XRC */
-	if (ep->id) {
-		rdma_destroy_id(ep->id);
-		ep->id = NULL;
+	if (ep->base_ep.id) {
+		rdma_destroy_id(ep->base_ep.id);
+		ep->base_ep.id = NULL;
 	}
 	if (ep->tgt_id) {
 		rdma_destroy_id(ep->tgt_id);
@@ -138,31 +138,33 @@ void fi_ibv_free_xrc_conn_setup(struct fi_ibv_ep *ep)
 	}
 }
 
-int fi_ibv_connect_xrc(struct fi_ibv_ep *ep, struct sockaddr *addr,
+int fi_ibv_connect_xrc(struct fi_ibv_xrc_ep *ep, struct sockaddr *addr,
 		       int reciprocal, void *param, size_t paramlen)
 {
-	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(&ep->base_ep);
 	struct sockaddr *peer_addr;
 	char buf[OFI_ADDRSTRLEN];
 	size_t len = sizeof(buf);
 	int ret;
 
-	assert(ep->id && !ep->ibv_qp && !ep->ini_conn);
+	assert(ep->base_ep.id && !ep->base_ep.ibv_qp && !ep->ini_conn);
 
-	peer_addr = rdma_get_local_addr(ep->id);
+	peer_addr = rdma_get_local_addr(ep->base_ep.id);
 	if (peer_addr) {
-		ofi_straddr(buf, &len, ep->info->addr_format, peer_addr);
+		ofi_straddr(buf, &len, ep->base_ep.info->addr_format,
+			    peer_addr);
 		VERBS_DBG(FI_LOG_FABRIC, "XRC connect src_addr: %s\n", buf);
 	}
-	peer_addr = rdma_get_peer_addr(ep->id);
+	peer_addr = rdma_get_peer_addr(ep->base_ep.id);
 	if (peer_addr) {
-		ofi_straddr(buf, &len, ep->info->addr_format, peer_addr);
+		ofi_straddr(buf, &len, ep->base_ep.info->addr_format,
+			    peer_addr);
 		VERBS_DBG(FI_LOG_FABRIC, "XRC connect dst_addr: %s\n", buf);
 	}
 
 	if (!reciprocal) {
 		ep->conn_setup = calloc(1, sizeof(*ep->conn_setup));
-		if (!ep)
+		if (!ep->conn_setup)
 			return -FI_ENOMEM;
 	}
 
@@ -186,12 +188,12 @@ int fi_ibv_connect_xrc(struct fi_ibv_ep *ep, struct sockaddr *addr,
 	return FI_SUCCESS;
 }
 
-void fi_ibv_ep_ini_conn_done(struct fi_ibv_ep *ep, uint32_t peer_srqn,
+void fi_ibv_ep_ini_conn_done(struct fi_ibv_xrc_ep *ep, uint32_t peer_srqn,
 			     uint32_t tgt_qpn)
 {
-	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(&ep->base_ep);
 
-	assert(ep->id && ep->ini_conn);
+	assert(ep->base_ep.id && ep->ini_conn);
 
 	fastlock_acquire(&domain->xrc.ini_mgmt_lock);
 #if ENABLE_DEBUG
@@ -203,10 +205,10 @@ void fi_ibv_ep_ini_conn_done(struct fi_ibv_ep *ep, uint32_t peer_srqn,
 	/* If this was a physical INI/TGT QP connection, remove the QP
 	 * from control of the RDMA CM. We don't want the shared INI QP
 	 * to be destroyed if this endpoint closes. */
-	if (ep->id->qp) {
+	if (ep->base_ep.id->qp) {
 		ep->ini_conn->state = FI_IBV_INI_QP_CONNECTED;
 		ep->ini_conn->tgt_qpn = tgt_qpn;
-		ep->id->qp = NULL;
+		ep->base_ep.id->qp = NULL;
 		VERBS_DBG(FI_LOG_EP_CTRL,
 			  "Set INI Conn QP %d remote TGT QP %d\n",
 			  ep->ini_conn->ini_qp->qp_num,
@@ -217,11 +219,11 @@ void fi_ibv_ep_ini_conn_done(struct fi_ibv_ep *ep, uint32_t peer_srqn,
 	fastlock_release(&domain->xrc.ini_mgmt_lock);
 }
 
-void fi_ibv_ep_ini_conn_rejected(struct fi_ibv_ep *ep)
+void fi_ibv_ep_ini_conn_rejected(struct fi_ibv_xrc_ep *ep)
 {
-	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(&ep->base_ep);
 
-	assert(ep->id && ep->ini_conn);
+	assert(ep->base_ep.id && ep->ini_conn);
 
 	fastlock_acquire(&domain->xrc.ini_mgmt_lock);
 #if ENABLE_DEBUG
@@ -231,7 +233,7 @@ void fi_ibv_ep_ini_conn_rejected(struct fi_ibv_ep *ep)
 	fastlock_release(&domain->xrc.ini_mgmt_lock);
 }
 
-void fi_ibv_ep_tgt_conn_done(struct fi_ibv_ep *ep)
+void fi_ibv_ep_tgt_conn_done(struct fi_ibv_xrc_ep *ep)
 {
 #if ENABLE_DEBUG
 	fi_ibv_log_ep_conn(ep, "TGT Connection Done\n");
@@ -242,7 +244,7 @@ void fi_ibv_ep_tgt_conn_done(struct fi_ibv_ep *ep)
 	}
 }
 
-int fi_ibv_accept_xrc(struct fi_ibv_ep *ep, int reciprocal,
+int fi_ibv_accept_xrc(struct fi_ibv_xrc_ep *ep, int reciprocal,
 		      void *param, size_t paramlen)
 {
 	struct sockaddr *addr;
@@ -255,18 +257,18 @@ int fi_ibv_accept_xrc(struct fi_ibv_ep *ep, int reciprocal,
 
 	addr = rdma_get_local_addr(ep->tgt_id);
 	if (addr) {
-		ofi_straddr(buf, &len, ep->info->addr_format, addr);
+		ofi_straddr(buf, &len, ep->base_ep.info->addr_format, addr);
 		VERBS_INFO(FI_LOG_CORE, "src_addr: %s\n", buf);
 	}
 	addr = rdma_get_peer_addr(ep->tgt_id);
 	if (addr) {
 		len = sizeof(buf);
-		ofi_straddr(buf, &len, ep->info->addr_format, addr);
+		ofi_straddr(buf, &len, ep->base_ep.info->addr_format, addr);
 		VERBS_INFO(FI_LOG_CORE, "dst_addr: %s\n", buf);
 	}
 
-	connreq = container_of(ep->info->handle, struct fi_ibv_connreq,
-			       handle);
+	connreq = container_of(ep->base_ep.info->handle,
+			       struct fi_ibv_connreq, handle);
 	ret = fi_ibv_ep_create_tgt_qp(ep, connreq->xrc.conn_data);
 	if (ret)
 		return ret;
@@ -280,7 +282,7 @@ int fi_ibv_accept_xrc(struct fi_ibv_ep *ep, int reciprocal,
 	conn_param.initiator_depth = RDMA_MAX_INIT_DEPTH;
 	conn_param.flow_control = 1;
 	conn_param.rnr_retry_count = 7;
-	if (ep->srq_ep)
+	if (ep->base_ep.srq_ep)
 		conn_param.srq = 1;
 
 	/* Shared INI/TGT QP connection use a temporarily reserved QP number
@@ -311,13 +313,15 @@ int fi_ibv_accept_xrc(struct fi_ibv_ep *ep, int reciprocal,
 int fi_ibv_process_xrc_connreq(struct fi_ibv_ep *ep,
 			       struct fi_ibv_connreq *connreq)
 {
+	struct fi_ibv_xrc_ep *xrc_ep = container_of(ep, struct fi_ibv_xrc_ep,
+						    base_ep);
 	int ret;
 
 	assert(ep->info->src_addr);
 	assert(ep->info->dest_addr);
 
-	ep->conn_setup = calloc(1, sizeof(*ep->conn_setup));
-	if (!ep->conn_setup)
+	xrc_ep->conn_setup = calloc(1, sizeof(*xrc_ep->conn_setup));
+	if (!xrc_ep->conn_setup)
 		return -FI_ENOMEM;
 
 	/* This endpoint was created on the passive side of a connection
@@ -332,94 +336,12 @@ int fi_ibv_process_xrc_connreq(struct fi_ibv_ep *ep,
 			   "Creation of INI cm_id failed %d\n", ret);
 		goto create_err;
 	}
-	ep->tgt_id = connreq->id;
-	ep->tgt_id->context = &ep->util_ep.ep_fid.fid;
+	xrc_ep->tgt_id = connreq->id;
+	xrc_ep->tgt_id->context = &ep->util_ep.ep_fid.fid;
 
 	return FI_SUCCESS;
 
 create_err:
-	free(ep->conn_setup);
+	free(xrc_ep->conn_setup);
 	return ret;
 }
-
-int fi_ibv_process_xrc_recip_connreq(struct fi_ibv_eq *eq,
-				     struct fi_ibv_connreq *connreq,
-				     struct fi_eq_cm_entry *entry)
-{
-	struct fi_ibv_ep *ep;
-	struct fi_ibv_xrc_cm_data xrc_cm_data;
-	size_t xrc_cm_datalen;
-	int ret;
-
-	ep = fi_ibv_eq_xrc_conn_tag2ep(eq, connreq->xrc.conn_tag);
-	if (!ep)
-		return -FI_EINVAL;
-
-	ep->tgt_id = connreq->id;
-	ep->tgt_id->context = &ep->util_ep.ep_fid.fid;
-	ep->info->handle = entry->info->handle;
-
-	ret = rdma_migrate_id(ep->tgt_id, ep->eq->channel);
-	if (ret) {
-		ret = -errno;
-		VERBS_WARN(FI_LOG_FABRIC, "Could not migrate XRC tgt_id %d\n",
-			   ret);
-		goto err;
-	}
-
-	xrc_cm_datalen = sizeof(xrc_cm_data);
-	ret = fi_ibv_accept_xrc(ep, FI_IBV_RECIP_CONN, &xrc_cm_data,
-				xrc_cm_datalen);
-	if (ret) {
-		VERBS_WARN(FI_LOG_FABRIC,
-			   "Reciprocal XRC Accept failed %d\n", ret);
-		goto err;
-	}
-	return -FI_EAGAIN;
-
-err:
-	return -FI_EAGAIN;
-}
-
-#else /* INCLUDE_VERBS_XRC */
-
-void fi_ibv_set_xrc_cm_data(struct fi_ibv_xrc_cm_data *local, int reciprocal,
-			    uint32_t conn_tag, uint16_t port, uint32_t param)
-{
-	/* Code error if this function is called with XRC disabled */
-	assert(0);
-}
-
-int fi_ibv_verify_xrc_cm_data(struct fi_ibv_xrc_cm_data *remote,
-			      int private_data_len)
-{
-	/* Code error if this function is called with XRC disabled */
-	assert(0);
-	return -FI_ENOSYS;
-}
-
-int fi_ibv_connect_xrc(struct fi_ibv_ep *ep, struct sockaddr *addr,
-		       int reciprocal, void *param, size_t paramlen)
-{
-	/* Code error if this function is called with XRC disabled */
-	assert(0);
-	return -FI_ENOSYS;
-}
-
-int fi_ibv_accept_xrc(struct fi_ibv_ep *ep, int reciprocal,
-		      void *param, size_t paramlen)
-{
-	/* Code error if this function is called with XRC disabled */
-	assert(0);
-	return -FI_ENOSYS;
-}
-
-int fi_ibv_process_xrc_connreq(struct fi_ibv_ep *ep,
-			       struct fi_ibv_connreq *connreq)
-{
-	/* Code error if this function is called with XRC disabled */
-	assert(0);
-	return -FI_ENOSYS;
-}
-
-#endif /* INCLUDE_VERBS_XRC */

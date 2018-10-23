@@ -412,11 +412,9 @@ static inline int fi_ibv_get_qp_cap(struct ibv_context *ctx,
 		goto err1;
 	}
 
-#ifdef INCLUDE_VERBS_XRC
-	if (fi_ibv_using_xrc() && info->ep_attr->type == FI_EP_MSG)
+	if (fi_ibv_is_xrc(info))
 		qp_type = IBV_QPT_XRC_SEND;
 	else
-#endif
 		qp_type = (info->ep_attr->type != FI_EP_DGRAM) ?
 				    IBV_QPT_RC : IBV_QPT_UD;
 
@@ -484,15 +482,12 @@ static int fi_ibv_get_device_attrs(struct ibv_context *ctx,
 		return -errno;
 	}
 
-#ifdef INCLUDE_VERBS_XRC
-	if (fi_ibv_using_xrc()) {
-		if (info->ep_attr->type == FI_EP_MSG &&
-		    !(device_attr.device_cap_flags & IBV_DEVICE_XRC)) {
+	if (fi_ibv_is_xrc(info)) {
+		if (!(device_attr.device_cap_flags & IBV_DEVICE_XRC)) {
 			VERBS_WARN(FI_LOG_FABRIC, "XRC not supported\n");
 			return -FI_EINVAL;
 		}
 	}
-#endif
 
 	info->domain_attr->cq_cnt 		= device_attr.max_cq;
 	info->domain_attr->ep_cnt 		= device_attr.max_qp;

@@ -481,26 +481,20 @@ int fi_ibv_srq_context(struct fid_domain *domain, struct fi_rx_attr *attr,
 		       struct fid_ep **rx_ep, void *context);
 
 /* Used to determine if XRC has been enabled and requested */
-#ifdef INCLUDE_VERBS_XRC
 static inline int fi_ibv_using_xrc(void)
 {
 	return fi_ibv_gl_data.msg.use_xrc;
+}
+
+static inline int fi_ibv_is_xrc(struct fi_info *info)
+{
+	return fi_ibv_using_xrc() && (FI_IBV_EP_TYPE(info) == FI_EP_MSG);
 }
 
 static inline int fi_ibv_is_xrc_send_qp(enum ibv_qp_type qp_type)
 {
 	return qp_type == IBV_QPT_XRC_SEND;
 }
-#else /* INCLUDE_VERBS_XRC */
-static inline int fi_ibv_using_xrc(void)
-{
-	return 0;
-}
-static inline int fi_ibv_is_xrc_send_qp(enum ibv_qp_type qp_type)
-{
-	return 0;
-}
-#endif /* INCLUDE_VERBS_XRC */
 
 int fi_ibv_domain_xrc_init(struct fi_ibv_domain *domain);
 int fi_ibv_domain_xrc_cleanup(struct fi_ibv_domain *domain);
@@ -595,8 +589,12 @@ struct fi_ibv_ep {
 		struct ibv_send_wr	msg_wr;
 		struct ibv_sge		sge;
 	} *wrs;
+};
 
-#ifdef INCLUDE_VERBS_XRC
+struct fi_ibv_xrc_ep {
+	/* Must be first */
+	struct fi_ibv_ep		base_ep;
+
 	/* XRC only fields */
 	struct rdma_cm_id		*tgt_id;
 	struct ibv_qp			*tgt_ibv_qp;
@@ -612,7 +610,6 @@ struct fi_ibv_ep {
 	/* The following state is allocated during XRC bidirectional setup and
 	 * freed once the connection is established. */
 	struct fi_ibv_xrc_ep_conn_setup	*conn_setup;
-#endif /* INCLUDE_VERBS_XRC */
 };
 
 int fi_ibv_open_ep(struct fid_domain *domain, struct fi_info *info,
@@ -633,6 +630,7 @@ struct fi_ibv_domain *fi_ibv_ep_to_domain(struct fi_ibv_ep *ep)
 }
 
 struct fi_ops_atomic fi_ibv_msg_ep_atomic_ops;
+struct fi_ops_atomic fi_ibv_msg_xrc_ep_atomic_ops;
 struct fi_ops_cm fi_ibv_msg_ep_cm_ops;
 struct fi_ops_cm fi_ibv_msg_xrc_ep_cm_ops;
 struct fi_ops_msg fi_ibv_msg_ep_msg_ops_ts;
@@ -679,52 +677,42 @@ struct fi_ibv_cm_data_hdr {
 	char	data[];
 };
 
-void fi_ibv_eq_set_xrc_conn_tag(struct fi_ibv_ep *ep);
-struct fi_ibv_ep *fi_ibv_eq_xrc_conn_tag2ep(struct fi_ibv_eq *eq,
-					    uint32_t conn_tag);
-void fi_ibv_eq_clear_xrc_conn_tag(struct fi_ibv_ep *ep);
+void fi_ibv_msg_ep_get_qp_attr(struct fi_ibv_ep *ep,
+			       struct fi_ibv_domain **domain,
+			       struct ibv_qp_init_attr *attr);
+int fi_ibv_process_xrc_connreq(struct fi_ibv_ep *ep,
+			       struct fi_ibv_connreq *connreq);
 
+void fi_ibv_eq_set_xrc_conn_tag(struct fi_ibv_xrc_ep *ep);
+void fi_ibv_eq_clear_xrc_conn_tag(struct fi_ibv_xrc_ep *ep);
+struct fi_ibv_xrc_ep *fi_ibv_eq_xrc_conn_tag2ep(struct fi_ibv_eq *eq,
+						uint32_t conn_tag);
 void fi_ibv_set_xrc_cm_data(struct fi_ibv_xrc_cm_data *local, int reciprocal,
 			    uint32_t conn_tag, uint16_t port, uint32_t param);
 int fi_ibv_verify_xrc_cm_data(struct fi_ibv_xrc_cm_data *remote,
 			      int private_data_len);
-int fi_ibv_connect_xrc(struct fi_ibv_ep *ep, struct sockaddr *addr,
+int fi_ibv_connect_xrc(struct fi_ibv_xrc_ep *ep, struct sockaddr *addr,
 		       int reciprocal, void *param, size_t paramlen);
-int fi_ibv_accept_xrc(struct fi_ibv_ep *ep, int reciprocal,
+int fi_ibv_accept_xrc(struct fi_ibv_xrc_ep *ep, int reciprocal,
 		      void *param, size_t paramlen);
-void fi_ibv_free_xrc_conn_setup(struct fi_ibv_ep *ep);
-int fi_ibv_process_xrc_connreq(struct fi_ibv_ep *ep,
-			       struct fi_ibv_connreq *connreq);
-int fi_ibv_process_xrc_recip_connreq(struct fi_ibv_eq *eq,
-				     struct fi_ibv_connreq *connreq,
-				     struct fi_eq_cm_entry *entry);
-void fi_ibv_add_pending_ini_conn(struct fi_ibv_ep *ep, int reciprocal,
+void fi_ibv_free_xrc_conn_setup(struct fi_ibv_xrc_ep *ep);
+void fi_ibv_add_pending_ini_conn(struct fi_ibv_xrc_ep *ep, int reciprocal,
 				 void *conn_param, size_t conn_paramlen);
 void fi_ibv_sched_ini_conn(struct fi_ibv_ini_shared_conn *ini_conn);
-struct fi_ibv_ini_shared_conn *fi_ibv_get_shared_ini_conn(struct fi_ibv_ep *ep);
-void fi_ibv_put_shared_ini_conn(struct fi_ibv_ep *ep);
-int fi_ibv_reserve_qpn(struct fi_ibv_ep *ep, struct ibv_qp **qp);
+struct fi_ibv_ini_shared_conn *fi_ibv_get_shared_ini_conn(struct fi_ibv_xrc_ep *ep);
+void fi_ibv_put_shared_ini_conn(struct fi_ibv_xrc_ep *ep);
+int fi_ibv_reserve_qpn(struct fi_ibv_xrc_ep *ep, struct ibv_qp **qp);
 
-struct fi_ibv_ep *fi_ibv_conn_tag_to_ep(uint32_t conn_tag);
-int fi_ibv_alloc_conn_tag(struct fi_ibv_ep *ep);
-void fi_ibv_free_conn_tag(uint32_t conn_tag);
-int fi_ibv_xrc_msg_ep_connreq(struct fi_ibv_eq *eq,
-			      struct fi_ibv_connreq *connreq,
-			      struct fi_eq_cm_entry *entry);
-
-void fi_ibv_save_priv_data(struct fi_ibv_ep *ep, const void *data, size_t len);
-void fi_ibv_msg_ep_get_qp_attr(struct fi_ibv_ep *ep,
-			       struct fi_ibv_domain **domain,
-			       struct ibv_qp_init_attr *attr);
-
-int fi_ibv_ep_create_ini_qp(struct fi_ibv_ep *ep, void *dst_addr,
+void fi_ibv_save_priv_data(struct fi_ibv_xrc_ep *ep, const void *data,
+			   size_t len);
+int fi_ibv_ep_create_ini_qp(struct fi_ibv_xrc_ep *ep, void *dst_addr,
 			    uint32_t *peer_tgt_qpn);
-void fi_ibv_ep_ini_conn_done(struct fi_ibv_ep *qp, uint32_t peer_srqn,
+void fi_ibv_ep_ini_conn_done(struct fi_ibv_xrc_ep *ep, uint32_t peer_srqn,
 			    uint32_t peer_tgt_qpn);
-void fi_ibv_ep_ini_conn_rejected(struct fi_ibv_ep *ep);
-int fi_ibv_ep_create_tgt_qp(struct fi_ibv_ep *ep, uint32_t tgt_qpn);
-void fi_ibv_ep_tgt_conn_done(struct fi_ibv_ep *qp);
-int fi_ibv_ep_destroy_xrc_qp(struct fi_ibv_ep *ep);
+void fi_ibv_ep_ini_conn_rejected(struct fi_ibv_xrc_ep *ep);
+int fi_ibv_ep_create_tgt_qp(struct fi_ibv_xrc_ep *ep, uint32_t tgt_qpn);
+void fi_ibv_ep_tgt_conn_done(struct fi_ibv_xrc_ep *qp);
+int fi_ibv_ep_destroy_xrc_qp(struct fi_ibv_xrc_ep *ep);
 
 int fi_ibv_sockaddr_len(struct sockaddr *addr);
 

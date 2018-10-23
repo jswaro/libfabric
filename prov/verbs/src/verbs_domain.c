@@ -383,7 +383,6 @@ static void fi_ibv_domain_process_exp(struct fi_ibv_domain *domain)
 	domain->use_odp = fi_ibv_gl_data.use_odp;
 }
 
-#ifdef INCLUDE_VERBS_XRC
 static int fi_ibv_domain_check_xrc(struct fi_ibv_domain *domain)
 {
 	struct ibv_device_attr attr;
@@ -401,13 +400,6 @@ static int fi_ibv_domain_check_xrc(struct fi_ibv_domain *domain)
 	}
 	return fi_ibv_domain_xrc_init(domain);
 }
-#else /* INCLUDE_VERBS_XRC */
-static int fi_ibv_domain_check_xrc(struct fi_ibv_domain *domain)
-{
-	domain->use_xrc = 0;
-	return 0;
-}
-#endif /* INCLUDE_VERBS_XRC */
 
 static int
 fi_ibv_domain(struct fid_fabric *fabric, struct fi_info *info,

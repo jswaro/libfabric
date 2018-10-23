@@ -60,36 +60,37 @@ fi_ibv_eq_readerr(struct fid_eq *eq, struct fi_eq_err_entry *entry,
 	return sizeof(*entry);
 }
 
-#ifdef INCLUDE_VERBS_XRC
-
-void fi_ibv_eq_set_xrc_conn_tag(struct fi_ibv_ep *ep)
+void fi_ibv_eq_set_xrc_conn_tag(struct fi_ibv_xrc_ep *ep)
 {
-	fastlock_acquire(&ep->eq->xrc.idx_lock);
+	struct fi_ibv_eq *eq = ep->base_ep.eq;
+
+	fastlock_acquire(&eq->xrc.idx_lock);
 	ep->conn_setup->conn_tag =
-		(uint32_t)ofi_idx2key(&ep->eq->xrc.conn_key_idx,
-				ofi_idx_insert(ep->eq->xrc.conn_key_map, ep));
-	fastlock_release(&ep->eq->xrc.idx_lock);
+		(uint32_t)ofi_idx2key(&eq->xrc.conn_key_idx,
+				ofi_idx_insert(eq->xrc.conn_key_map, ep));
+	fastlock_release(&eq->xrc.idx_lock);
 }
 
-void fi_ibv_eq_clear_xrc_conn_tag(struct fi_ibv_ep *ep)
+void fi_ibv_eq_clear_xrc_conn_tag(struct fi_ibv_xrc_ep *ep)
 {
+	struct fi_ibv_eq *eq = ep->base_ep.eq;
 	int index;
 
-	fastlock_acquire(&ep->eq->xrc.idx_lock);
-	index = ofi_key2idx(&ep->eq->xrc.conn_key_idx,
+	fastlock_acquire(&eq->xrc.idx_lock);
+	index = ofi_key2idx(&eq->xrc.conn_key_idx,
 			    (uint64_t)ep->conn_setup->conn_tag);
-	if (!ofi_idx_is_valid(ep->eq->xrc.conn_key_map, index))
+	if (!ofi_idx_is_valid(eq->xrc.conn_key_map, index))
 	    VERBS_WARN(FI_LOG_EQ, "Invalid XRC connection connection tag\n");
 	else
-		ofi_idx_remove(ep->eq->xrc.conn_key_map, index);
+		ofi_idx_remove(eq->xrc.conn_key_map, index);
 	ep->conn_setup->conn_tag = 0;
-	fastlock_release(&ep->eq->xrc.idx_lock);
+	fastlock_release(&eq->xrc.idx_lock);
 }
 
-struct fi_ibv_ep *fi_ibv_eq_xrc_conn_tag2ep(struct fi_ibv_eq *eq,
-					    uint32_t conn_tag)
+struct fi_ibv_xrc_ep *fi_ibv_eq_xrc_conn_tag2ep(struct fi_ibv_eq *eq,
+						uint32_t conn_tag)
 {
-	struct fi_ibv_ep *ep;
+	struct fi_ibv_xrc_ep *ep;
 	int index;
 
 	fastlock_acquire(&eq->xrc.idx_lock);
@@ -102,30 +103,6 @@ struct fi_ibv_ep *fi_ibv_eq_xrc_conn_tag2ep(struct fi_ibv_eq *eq,
 
 	return ep;
 }
-
-#else /* INCLUDE_VERBS_XRC */
-
-void fi_ibv_eq_set_xrc_conn_tag(struct fi_ibv_ep *ep)
-{
-	/* Should not be callable if XRC is disabled */
-	assert(0);
-}
-
-void fi_ibv_eq_clear_xrc_conn_tag(struct fi_ibv_ep *ep)
-{
-	/* Should not be callable if XRC is disabled */
-	assert(0);
-}
-
-struct fi_ibv_ep *fi_ibv_eq_xrc_conn_tag2ep(struct fi_ibv_eq *eq,
-					    uint32_t conn_tag)
-{
-	/* Should not be callable if XRC is disabled */
-	assert(0);
-	return NULL;
-}
-
-#endif /* INCLUDE_VERBS_XRC */
 
 static int fi_ibv_eq_set_xrc_info(struct rdma_cm_event *event,
 				  struct fi_ibv_xrc_conn_info *info)
@@ -247,8 +224,6 @@ static inline int fi_ibv_eq_copy_event_data(struct fi_eq_cm_entry *entry,
 	return datalen;
 }
 
-#ifdef INCLUDE_VERBS_XRC
-
 static void fi_ibv_eq_skip_xrc_cm_data(const void **priv_data,
 				       size_t *priv_data_len)
 {
@@ -264,7 +239,7 @@ fi_ibv_eq_xrc_connreq_event(struct fi_ibv_eq *eq, struct fi_eq_cm_entry *entry,
 {
 	struct fi_ibv_connreq *connreq = container_of(entry->info->handle,
 						struct fi_ibv_connreq, handle);
-	struct fi_ibv_ep *ep;
+	struct fi_ibv_xrc_ep *ep;
 	struct fi_ibv_xrc_cm_data cm_data;
 	int ret;
 
@@ -285,10 +260,10 @@ fi_ibv_eq_xrc_connreq_event(struct fi_ibv_eq *eq, struct fi_eq_cm_entry *entry,
 		goto send_reject;
 	}
 	ep->tgt_id = connreq->id;
-	ep->tgt_id->context = &ep->util_ep.ep_fid.fid;
-	ep->info->handle = entry->info->handle;
+	ep->tgt_id->context = &ep->base_ep.util_ep.ep_fid.fid;
+	ep->base_ep.info->handle = entry->info->handle;
 
-	ret = rdma_migrate_id(ep->tgt_id, ep->eq->channel);
+	ret = rdma_migrate_id(ep->tgt_id, ep->base_ep.eq->channel);
 	if (ret) {
 		VERBS_WARN(FI_LOG_FABRIC, "Could not migrate CM ID\n");
 		goto send_reject;
@@ -311,7 +286,8 @@ send_reject:
 }
 
 static int
-fi_ibv_eq_xrc_conn_event(struct fi_ibv_ep *ep, struct rdma_cm_event *cma_event,
+fi_ibv_eq_xrc_conn_event(struct fi_ibv_xrc_ep *ep,
+			 struct rdma_cm_event *cma_event,
 			 struct fi_eq_cm_entry *entry)
 {
 	struct fi_ibv_xrc_conn_info xrc_info;
@@ -333,7 +309,7 @@ fi_ibv_eq_xrc_conn_event(struct fi_ibv_ep *ep, struct rdma_cm_event *cma_event,
 		ret = fi_ibv_eq_set_xrc_info(cma_event, &xrc_info);
 		if (ret) {
 			ep->conn_state--;
-			rdma_disconnect(ep->id);
+			rdma_disconnect(ep->base_ep.id);
 			goto err;
 		}
 		ep->peer_srqn = xrc_info.conn_data;
@@ -358,7 +334,7 @@ err:
 }
 
 static size_t
-fi_ibv_eq_xrc_recip_conn_event(struct fi_ibv_ep *ep,
+fi_ibv_eq_xrc_recip_conn_event(struct fi_ibv_xrc_ep *ep,
 			       struct rdma_cm_event *cma_event,
 			       struct fi_eq_cm_entry *entry, size_t len)
 {
@@ -400,11 +376,11 @@ fi_ibv_eq_xrc_recip_conn_event(struct fi_ibv_ep *ep,
 static int
 fi_ibv_eq_xrc_rej_event(struct fi_ibv_eq *eq, struct rdma_cm_event *cma_event)
 {
-	struct fi_ibv_ep *ep;
+	struct fi_ibv_xrc_ep *ep;
 	fid_t fid = cma_event->id->context;
 	struct fi_ibv_xrc_conn_info xrc_info;
 
-	ep = container_of(fid, struct fi_ibv_ep, util_ep.ep_fid);
+	ep = container_of(fid, struct fi_ibv_xrc_ep, base_ep.util_ep.ep_fid);
 
 	if (!cma_event->param.conn.private_data_len ||
 			fi_ibv_eq_set_xrc_info(cma_event, &xrc_info)) {
@@ -417,7 +393,7 @@ fi_ibv_eq_xrc_rej_event(struct fi_ibv_eq *eq, struct rdma_cm_event *cma_event)
 	}
 
 	fi_ibv_ep_ini_conn_rejected(ep);
-	return ep->id == cma_event->id ? FI_SUCCESS : -FI_EAGAIN;
+	return ep->base_ep.id == cma_event->id ? FI_SUCCESS : -FI_EAGAIN;
 }
 
 static inline int
@@ -426,11 +402,11 @@ fi_ibv_eq_xrc_connected_event(struct fi_ibv_eq *eq,
 			      struct fi_eq_cm_entry *entry, size_t len,
 			      int *acked)
 {
-	struct fi_ibv_ep *ep;
+	struct fi_ibv_xrc_ep *ep;
 	fid_t fid = cma_event->id->context;
 	int ret;
 
-	ep = container_of(fid, struct fi_ibv_ep, util_ep.ep_fid);
+	ep = container_of(fid, struct fi_ibv_xrc_ep, base_ep.util_ep.ep_fid);
 
 	assert(ep->conn_state == FI_IBV_XRC_ORIG_CONNECTING ||
 	       ep->conn_state == FI_IBV_XRC_RECIP_CONNECTING);
@@ -448,46 +424,6 @@ fi_ibv_eq_xrc_connected_event(struct fi_ibv_eq *eq,
 
 	return ret;
 }
-
-#else /* INCLUDE_VERBS_XRC */
-
-static void
-fi_ibv_eq_skip_xrc_cm_data(const void **priv_data, size_t *priv_data_len)
-{
-	/* Should not be callable if XRC is disabled */
-	abort();
-	return;
-}
-
-static int
-fi_ibv_eq_xrc_connreq_event(struct fi_ibv_eq *eq, struct fi_eq_cm_entry *entry,
-			    const void **priv_data, size_t *priv_datalen)
-{
-	/* Should not be callable if XRC is disabled */
-	assert(0);
-	return -FI_ENOSYS;
-}
-
-static inline int
-fi_ibv_eq_xrc_connected_event(struct fi_ibv_eq *eq,
-			      struct rdma_cm_event *cma_event,
-			      struct fi_eq_cm_entry *entry, size_t len,
-			      int *acked)
-{
-	/* Should not be callable if XRC is disabled */
-	assert(0);
-	return -FI_ENOSYS;
-}
-
-static int
-fi_ibv_eq_xrc_rej_event(struct fi_ibv_eq *eq, struct rdma_cm_event *cma_event)
-{
-	/* Should not be callable if XRC is disabled */
-	assert(0);
-	return -FI_ENOSYS;
-}
-
-#endif /* INCLUDE_VERBS_XRC */
 
 static ssize_t
 fi_ibv_eq_cm_process_event(struct fi_ibv_eq *eq,

@@ -313,8 +313,6 @@ struct fi_ops_cm fi_ibv_msg_ep_cm_ops = {
 	.join = fi_no_join,
 };
 
-#ifdef INCLUDE_VERBS_XRC
-
 static int
 fi_ibv_msg_xrc_ep_connect(struct fid_ep *ep, const void *addr,
 		   const void *param, size_t paramlen)
@@ -323,10 +321,17 @@ fi_ibv_msg_xrc_ep_connect(struct fid_ep *ep, const void *addr,
 	void *adjusted_param;
 	struct fi_ibv_ep *_ep = container_of(ep, struct fi_ibv_ep,
 					     util_ep.ep_fid);
+	struct fi_ibv_xrc_ep *xrc_ep;
 	int ret;
 	struct fi_ibv_cm_data_hdr *cm_hdr;
 
-	if (!_ep->srqn) {
+	if (!fi_ibv_is_xrc(_ep->info)) {
+		VERBS_WARN(FI_LOG_EP_CTRL, "EP is not using XRC\n");
+		return -FI_EINVAL;
+	}
+	xrc_ep = container_of(_ep, struct fi_ibv_xrc_ep, base_ep);
+
+	if (!xrc_ep->srqn) {
 		ret = fi_control(&ep->fid, FI_ENABLE, NULL);
 		if (ret)
 			return ret;
@@ -344,7 +349,7 @@ fi_ibv_msg_xrc_ep_connect(struct fid_ep *ep, const void *addr,
 		return ret;
 
 	dst_addr = rdma_get_peer_addr(_ep->id);
-	ret = fi_ibv_connect_xrc(_ep, dst_addr, 0, adjusted_param, paramlen);
+	ret = fi_ibv_connect_xrc(xrc_ep, dst_addr, 0, adjusted_param, paramlen);
 	free(adjusted_param);
 	return ret;
 }
@@ -355,10 +360,17 @@ fi_ibv_msg_xrc_ep_accept(struct fid_ep *ep, const void *param, size_t paramlen)
 	void *adjusted_param;
 	struct fi_ibv_ep *_ep =
 		container_of(ep, struct fi_ibv_ep, util_ep.ep_fid);
+	struct fi_ibv_xrc_ep *xrc_ep;
 	int ret;
 	struct fi_ibv_cm_data_hdr *cm_hdr;
 
-	if (!_ep->srqn) {
+	if (!fi_ibv_is_xrc(_ep->info)) {
+		VERBS_WARN(FI_LOG_EP_CTRL, "EP is not using XRC\n");
+		return -FI_EINVAL;
+	}
+	xrc_ep = container_of(_ep, struct fi_ibv_xrc_ep, base_ep);
+
+	if (!xrc_ep->srqn) {
 		ret = fi_control(&ep->fid, FI_ENABLE, NULL);
 		if (ret)
 			return ret;
@@ -375,31 +387,10 @@ fi_ibv_msg_xrc_ep_accept(struct fid_ep *ep, const void *param, size_t paramlen)
 	if (ret)
 		return ret;
 
-	ret = fi_ibv_accept_xrc(_ep, 0, adjusted_param, paramlen);
+	ret = fi_ibv_accept_xrc(xrc_ep, 0, adjusted_param, paramlen);
 	free(adjusted_param);
 	return ret;
 }
-
-#else /* INCLUDE_VERBS_XRC */
-
-static int
-fi_ibv_msg_xrc_ep_connect(struct fid_ep *ep, const void *addr,
-		   const void *param, size_t paramlen)
-{
-	/* Should not be callable if XRC is not enabled */
-	assert(0);
-	return -FI_ENOSYS;
-}
-
-static int
-fi_ibv_msg_xrc_ep_accept(struct fid_ep *ep, const void *param, size_t paramlen)
-{
-	/* Should not be callable if XRC is not enabled */
-	assert(0);
-	return -FI_ENOSYS;
-}
-
-#endif /* INCLUDE_VERBS_XRC */
 
 struct fi_ops_cm fi_ibv_msg_xrc_ep_cm_ops = {
 	.size = sizeof(struct fi_ops_cm),

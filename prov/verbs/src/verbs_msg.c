@@ -255,13 +255,11 @@ struct fi_ops_msg fi_ibv_msg_srq_ep_msg_ops = {
 static ssize_t
 fi_ibv_msg_xrc_ep_sendmsg(struct fid_ep *ep_fid, const struct fi_msg *msg, uint64_t flags)
 {
-	struct fi_ibv_ep *ep =
-		container_of(ep_fid, struct fi_ibv_ep, util_ep.ep_fid);
+	struct fi_ibv_xrc_ep *ep = container_of(ep_fid, struct fi_ibv_xrc_ep,
+						base_ep.util_ep.ep_fid);
 	struct ibv_send_wr wr = {
 		.wr_id = (uintptr_t)msg->context,
-#ifdef INCLUDE_VERBS_XRC
 		.qp_type.xrc.remote_srqn = ep->peer_srqn,
-#endif
 	};
 
 	if (flags & FI_REMOTE_CQ_DATA) {
@@ -271,96 +269,86 @@ fi_ibv_msg_xrc_ep_sendmsg(struct fid_ep *ep_fid, const struct fi_msg *msg, uint6
 		wr.opcode = IBV_WR_SEND;
 	}
 
-	return fi_ibv_send_msg(ep, &wr, msg, flags);
+	return fi_ibv_send_msg(&ep->base_ep, &wr, msg, flags);
 }
 
 static ssize_t
 fi_ibv_msg_xrc_ep_send(struct fid_ep *ep_fid, const void *buf, size_t len,
 		void *desc, fi_addr_t dest_addr, void *context)
 {
-	struct fi_ibv_ep *ep =
-		container_of(ep_fid, struct fi_ibv_ep, util_ep.ep_fid);
+	struct fi_ibv_xrc_ep *ep = container_of(ep_fid, struct fi_ibv_xrc_ep,
+						base_ep.util_ep.ep_fid);
 	struct ibv_send_wr wr = {
-		.wr_id = VERBS_COMP(ep, (uintptr_t)context),
+		.wr_id = VERBS_COMP(&ep->base_ep, (uintptr_t)context),
 		.opcode = IBV_WR_SEND,
-		.send_flags = VERBS_INJECT(ep, len),
-#ifdef INCLUDE_VERBS_XRC
+		.send_flags = VERBS_INJECT(&ep->base_ep, len),
 		.qp_type.xrc.remote_srqn = ep->peer_srqn,
-#endif
 	};
 
-	return fi_ibv_send_buf(ep, &wr, buf, len, desc);
+	return fi_ibv_send_buf(&ep->base_ep, &wr, buf, len, desc);
 }
 
 static ssize_t
 fi_ibv_msg_xrc_ep_senddata(struct fid_ep *ep_fid, const void *buf, size_t len,
 		       void *desc, uint64_t data, fi_addr_t dest_addr, void *context)
 {
-	struct fi_ibv_ep *ep =
-		container_of(ep_fid, struct fi_ibv_ep, util_ep.ep_fid);
+	struct fi_ibv_xrc_ep *ep = container_of(ep_fid, struct fi_ibv_xrc_ep,
+						base_ep.util_ep.ep_fid);
 	struct ibv_send_wr wr = {
-		.wr_id = VERBS_COMP(ep, (uintptr_t)context),
+		.wr_id = VERBS_COMP(&ep->base_ep, (uintptr_t)context),
 		.opcode = IBV_WR_SEND_WITH_IMM,
 		.imm_data = htonl((uint32_t)data),
-		.send_flags = VERBS_INJECT(ep, len),
-#ifdef INCLUDE_VERBS_XRC
+		.send_flags = VERBS_INJECT(&ep->base_ep, len),
 		.qp_type.xrc.remote_srqn = ep->peer_srqn,
-#endif
 	};
 
-	return fi_ibv_send_buf(ep, &wr, buf, len, desc);
+	return fi_ibv_send_buf(&ep->base_ep, &wr, buf, len, desc);
 }
 
 static ssize_t
 fi_ibv_msg_xrc_ep_sendv(struct fid_ep *ep_fid, const struct iovec *iov, void **desc,
 		    size_t count, fi_addr_t dest_addr, void *context)
 {
-	struct fi_ibv_ep *ep =
-		container_of(ep_fid, struct fi_ibv_ep, util_ep.ep_fid);
+	struct fi_ibv_xrc_ep *ep = container_of(ep_fid, struct fi_ibv_xrc_ep,
+						base_ep.util_ep.ep_fid);
 	struct ibv_send_wr wr = {
 		.wr_id = (uintptr_t)context,
 		.opcode = IBV_WR_SEND,
-#ifdef INCLUDE_VERBS_XRC
 		.qp_type.xrc.remote_srqn = ep->peer_srqn,
-#endif
 	};
 
-	return fi_ibv_send_iov(ep, &wr, iov, desc, count);
+	return fi_ibv_send_iov(&ep->base_ep, &wr, iov, desc, count);
 }
 
 static ssize_t fi_ibv_msg_xrc_ep_inject(struct fid_ep *ep_fid, const void *buf, size_t len,
 		fi_addr_t dest_addr)
 {
-	struct fi_ibv_ep *ep =
-		container_of(ep_fid, struct fi_ibv_ep, util_ep.ep_fid);
+	struct fi_ibv_xrc_ep *ep = container_of(ep_fid, struct fi_ibv_xrc_ep,
+						base_ep.util_ep.ep_fid);
 	struct ibv_send_wr wr = {
 		.wr_id = VERBS_NO_COMP_FLAG,
 		.opcode = IBV_WR_SEND,
 		.send_flags = IBV_SEND_INLINE,
-#ifdef INCLUDE_VERBS_XRC
 		.qp_type.xrc.remote_srqn = ep->peer_srqn,
-#endif
 	};
 
-	return fi_ibv_send_buf_inline(ep, &wr, buf, len);
+	return fi_ibv_send_buf_inline(&ep->base_ep, &wr, buf, len);
 }
 
 static ssize_t fi_ibv_msg_xrc_ep_injectdata(struct fid_ep *ep_fid, const void *buf, size_t len,
 		    uint64_t data, fi_addr_t dest_addr)
 {
-	struct fi_ibv_ep *ep =
-		container_of(ep_fid, struct fi_ibv_ep, util_ep.ep_fid);
+	struct fi_ibv_xrc_ep *ep = container_of(ep_fid, struct fi_ibv_xrc_ep,
+						base_ep.util_ep.ep_fid);
 	struct ibv_send_wr wr = {
 		.wr_id = VERBS_NO_COMP_FLAG,
 		.opcode = IBV_WR_SEND_WITH_IMM,
 		.imm_data = htonl((uint32_t)data),
 		.send_flags = IBV_SEND_INLINE,
-#ifdef INCLUDE_VERBS_XRC
 		.qp_type.xrc.remote_srqn = ep->peer_srqn,
-#endif
 	};
 
-	return fi_ibv_send_buf_inline(ep, &wr, buf, len);
+	return fi_ibv_send_buf_inline(&ep->base_ep, &wr, buf, len);
 }
 
 /* NOTE: Initially the XRC endpoint must be used with a SRQ. */

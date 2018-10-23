@@ -547,21 +547,13 @@ static int fi_ibv_read_params(void)
 		return -FI_EINVAL;
 	}
 
-	if (fi_ibv_get_param_bool("use_xrc", "Enable XRC transport for message "
-				  "endpoint. XRC is under development.",
+	if (fi_ibv_get_param_bool("use_xrc", "Use XRC transport for message "
+				  "endpoint instead of RC.",
 				  &fi_ibv_gl_data.msg.use_xrc)) {
 		VERBS_WARN(FI_LOG_CORE,
 			   "Invalid value of use_xrc\n");
 		return -FI_EINVAL;
 	}
-
-#ifndef INCLUDE_VERBS_XRC
-	if (fi_ibv_gl_data.msg.use_xrc) {
-		VERBS_WARN(FI_LOG_CORE, "XRC requested, but not enabled, "
-			   "configure with --with-verbs-xrc\n");
-		fi_ibv_gl_data.msg.use_xrc = 0;
-	}
-#endif
 
 	if (fi_ibv_get_param_str("xrcd_filename", "A file to "
 				 "associate with the XRC domain.",

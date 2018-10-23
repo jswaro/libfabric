@@ -32,25 +32,23 @@
 #include "config.h"
 #include "fi_verbs.h"
 
-#ifdef INCLUDE_VERBS_XRC
-
 /* Domain XRC INI QP RBTree key */
 struct fi_ibv_ini_conn_key {
 	struct sockaddr		*addr;
 	struct fi_ibv_cq	*tx_cq;
 };
 
-static int fi_ibv_process_ini_conn(struct fi_ibv_ep *ep,int reciprocal,
+static int fi_ibv_process_ini_conn(struct fi_ibv_xrc_ep *ep,int reciprocal,
 				   void *param, size_t paramlen);
 
 /*
  * This routine is a work around that creates a QP for the only purpose of
  * reserving the QP number. The QP is not transitioned out of the RESET state.
  */
-int fi_ibv_reserve_qpn(struct fi_ibv_ep *ep, struct ibv_qp **qp)
+int fi_ibv_reserve_qpn(struct fi_ibv_xrc_ep *ep, struct ibv_qp **qp)
 {
-	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
-	struct fi_ibv_cq *cq = container_of(ep->util_ep.tx_cq,
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(&ep->base_ep);
+	struct fi_ibv_cq *cq = container_of(ep->base_ep.util_ep.tx_cq,
 					    struct fi_ibv_cq, util_cq);
 	struct ibv_qp_init_attr attr = { 0 };
 	int ret;
@@ -74,20 +72,20 @@ int fi_ibv_reserve_qpn(struct fi_ibv_ep *ep, struct ibv_qp **qp)
 	return FI_SUCCESS;
 }
 
-static int fi_ibv_create_ini_qp(struct fi_ibv_ep *ep)
+static int fi_ibv_create_ini_qp(struct fi_ibv_xrc_ep *ep)
 {
 	struct ibv_qp_init_attr_ex attr_ex;
-	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(&ep->base_ep);
 	int ret;
 
-	fi_ibv_msg_ep_get_qp_attr(ep, NULL,
+	fi_ibv_msg_ep_get_qp_attr(&ep->base_ep, NULL,
 			(struct ibv_qp_init_attr *)&attr_ex);
 	attr_ex.qp_type = IBV_QPT_XRC_SEND;
 	attr_ex.comp_mask = IBV_QP_INIT_ATTR_PD;
 	attr_ex.pd = domain->pd;
 	attr_ex.qp_context = domain;
 
-	ret = rdma_create_qp_ex(ep->id, &attr_ex);
+	ret = rdma_create_qp_ex(ep->base_ep.id, &attr_ex);
 	if (ret) {
 		ret = -errno;
 		VERBS_INFO_ERRNO(FI_LOG_EP_CTRL,
@@ -97,23 +95,24 @@ static int fi_ibv_create_ini_qp(struct fi_ibv_ep *ep)
 	return FI_SUCCESS;
 }
 
-static inline void fi_ibv_set_ini_conn_key(struct fi_ibv_ep *ep,
+static inline void fi_ibv_set_ini_conn_key(struct fi_ibv_xrc_ep *ep,
 					   struct fi_ibv_ini_conn_key *key)
 {
-	key->addr = ep->info->dest_addr;
-	key->tx_cq = container_of(ep->util_ep.tx_cq, struct fi_ibv_cq, util_cq);
+	key->addr = ep->base_ep.info->dest_addr;
+	key->tx_cq = container_of(ep->base_ep.util_ep.tx_cq,
+				  struct fi_ibv_cq, util_cq);
 }
 
 /* Caller must hold domain:xrc:ini_mgmt_lock */
-struct fi_ibv_ini_shared_conn *fi_ibv_get_shared_ini_conn(struct fi_ibv_ep *ep)
+struct fi_ibv_ini_shared_conn *fi_ibv_get_shared_ini_conn(struct fi_ibv_xrc_ep *ep)
 {
-	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(&ep->base_ep);
 	struct fi_ibv_ini_conn_key key;
 	struct fi_ibv_ini_shared_conn *ini_conn;
 	struct ofi_rbnode *node;
 	int ret;
 
-	assert(ep->id);
+	assert(ep->base_ep.id);
 
 	fi_ibv_set_ini_conn_key(ep, &key);
 	node = ofi_rbmap_find(domain->xrc.ini_conn_rbmap, &key);
@@ -136,7 +135,7 @@ struct fi_ibv_ini_shared_conn *fi_ibv_get_shared_ini_conn(struct fi_ibv_ep *ep)
 		errno = FI_ENOMEM;
 		return NULL;
 	}
-	ini_conn->tx_cq = container_of(ep->util_ep.tx_cq,
+	ini_conn->tx_cq = container_of(ep->base_ep.util_ep.tx_cq,
 				       struct fi_ibv_cq, util_cq);
 	dlist_init(&ini_conn->pending_list);
 	dlist_init(&ini_conn->active_list);
@@ -160,9 +159,9 @@ insert_err:
 }
 
 /* Caller must hold domain:xrc:ini_mgmt_lock */
-void fi_ibv_put_shared_ini_conn(struct fi_ibv_ep *ep)
+void fi_ibv_put_shared_ini_conn(struct fi_ibv_xrc_ep *ep)
 {
-	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(&ep->base_ep);
 	struct fi_ibv_ini_shared_conn *ini_conn = ep->ini_conn;
 	struct fi_ibv_ini_conn_key key;
 	struct ofi_rbnode *node;
@@ -174,7 +173,7 @@ void fi_ibv_put_shared_ini_conn(struct fi_ibv_ep *ep)
 	dlist_remove(&ep->ini_conn_entry);
 	ep->conn_state = FI_IBV_XRC_UNCONNECTED;
 	ep->ini_conn = NULL;
-	ep->ibv_qp = NULL;
+	ep->base_ep.ibv_qp = NULL;
 
 	/* Tear down physical INI/TGT when no longer being used */
 	if (!ofi_atomic_dec32(&ini_conn->ref_cnt)) {
@@ -194,7 +193,7 @@ void fi_ibv_put_shared_ini_conn(struct fi_ibv_ep *ep)
 }
 
 /* Caller must hold domain:xrc:ini_mgmt_lock */
-void fi_ibv_add_pending_ini_conn(struct fi_ibv_ep *ep, int reciprocal,
+void fi_ibv_add_pending_ini_conn(struct fi_ibv_xrc_ep *ep, int reciprocal,
 				 void *conn_param, size_t conn_paramlen)
 {
 	ep->conn_setup->pending_recip = reciprocal;
@@ -205,19 +204,20 @@ void fi_ibv_add_pending_ini_conn(struct fi_ibv_ep *ep, int reciprocal,
 	dlist_insert_tail(&ep->ini_conn_entry, &ep->ini_conn->pending_list);
 }
 
-static void fi_ibv_create_shutdown_event(struct fi_ibv_ep *ep)
+static void fi_ibv_create_shutdown_event(struct fi_ibv_xrc_ep *ep)
 {
 	struct fi_eq_cm_entry entry = {
-		.fid = &ep->util_ep.ep_fid.fid,
+		.fid = &ep->base_ep.util_ep.ep_fid.fid,
 	};
 
-	fi_ibv_eq_write_event(ep->eq, FI_SHUTDOWN, &entry, sizeof(entry));
+	fi_ibv_eq_write_event(ep->base_ep.eq, FI_SHUTDOWN,
+			      &entry, sizeof(entry));
 }
 
 /* Caller must hold domain:xrc:ini_mgmt_lock */
 void fi_ibv_sched_ini_conn(struct fi_ibv_ini_shared_conn *ini_conn)
 {
-	struct fi_ibv_ep *ep;
+	struct fi_ibv_xrc_ep *ep;
 	enum fi_ibv_ini_qp_state last_state;
 	int ret;
 
@@ -230,8 +230,8 @@ void fi_ibv_sched_ini_conn(struct fi_ibv_ini_shared_conn *ini_conn)
 				ini_conn->state == FI_IBV_INI_QP_CONNECTING)
 			return;
 
-		dlist_pop_front(&ini_conn->pending_list, struct fi_ibv_ep,
-				ep, ini_conn_entry);
+		dlist_pop_front(&ini_conn->pending_list,
+				struct fi_ibv_xrc_ep, ep, ini_conn_entry);
 
 		last_state = ep->ini_conn->state;
 		if (last_state == FI_IBV_INI_QP_UNCONNECTED) {
@@ -241,10 +241,10 @@ void fi_ibv_sched_ini_conn(struct fi_ibv_ini_shared_conn *ini_conn)
 					   "physical INI QP %d\n", ret);
 				abort();
 			}
-			ep->ini_conn->ini_qp = ep->id->qp;
+			ep->ini_conn->ini_qp = ep->base_ep.id->qp;
 			ep->ini_conn->state = FI_IBV_INI_QP_CONNECTING;
 		} else {
-			if (!ep->id->qp) {
+			if (!ep->base_ep.id->qp) {
 				ret = fi_ibv_reserve_qpn(ep,
 						 &ep->conn_setup->rsvd_ini_qpn);
 				if (ret) {
@@ -257,7 +257,7 @@ void fi_ibv_sched_ini_conn(struct fi_ibv_ini_shared_conn *ini_conn)
 
 		assert(ep->ini_conn->ini_qp);
 
-		ep->ibv_qp = ep->ini_conn->ini_qp;
+		ep->base_ep.ibv_qp = ep->ini_conn->ini_qp;
 		dlist_insert_tail(&ep->ini_conn_entry,
 				  &ep->ini_conn->active_list);
 
@@ -276,20 +276,21 @@ void fi_ibv_sched_ini_conn(struct fi_ibv_ini_shared_conn *ini_conn)
 }
 
 /* Caller must hold domain:xrc:ini_mgmt_lock */
-int fi_ibv_process_ini_conn(struct fi_ibv_ep *ep,int reciprocal,
+int fi_ibv_process_ini_conn(struct fi_ibv_xrc_ep *ep,int reciprocal,
 			    void *param, size_t paramlen)
 {
 	struct fi_ibv_xrc_cm_data *cm_data = param;
 	struct rdma_conn_param conn_param = { 0 };
 	int ret;
 
-	assert(ep->ibv_qp);
+	assert(ep->base_ep.ibv_qp);
 
 	if (!reciprocal)
 		fi_ibv_eq_set_xrc_conn_tag(ep);
 
 	fi_ibv_set_xrc_cm_data(cm_data, reciprocal, ep->conn_setup->conn_tag,
-			       ep->eq->xrc.pep_port, ep->ini_conn->tgt_qpn);
+			       ep->base_ep.eq->xrc.pep_port,
+			       ep->ini_conn->tgt_qpn);
 	conn_param.private_data = cm_data;
 	conn_param.private_data_len = paramlen;
 	conn_param.responder_resources = RDMA_MAX_RESP_RES;
@@ -301,14 +302,14 @@ int fi_ibv_process_ini_conn(struct fi_ibv_ep *ep,int reciprocal,
 
 	/* Shared connections use reserved temporary QP numbers to
 	 * avoid the appearance of stale/duplicate CM messages */
-	if (!ep->id->qp)
+	if (!ep->base_ep.id->qp)
 		conn_param.qp_num = ep->conn_setup->rsvd_ini_qpn->qp_num;
 
 	assert(ep->conn_state == FI_IBV_XRC_UNCONNECTED ||
 	       ep->conn_state == FI_IBV_XRC_ORIG_CONNECTED);
 	ep->conn_state++;
 
-	ret = rdma_connect(ep->id, &conn_param) ? -errno : 0;
+	ret = rdma_connect(ep->base_ep.id, &conn_param) ? -errno : 0;
 	if (ret) {
 		ret = -errno;
 		VERBS_INFO_ERRNO(FI_LOG_FABRIC, "rdma_connect", errno);
@@ -317,11 +318,11 @@ int fi_ibv_process_ini_conn(struct fi_ibv_ep *ep,int reciprocal,
 	return ret;
 }
 
-int fi_ibv_ep_create_tgt_qp(struct fi_ibv_ep *ep, uint32_t tgt_qpn)
+int fi_ibv_ep_create_tgt_qp(struct fi_ibv_xrc_ep *ep, uint32_t tgt_qpn)
 {
 	struct ibv_qp_open_attr open_attr;
 	struct ibv_qp_init_attr_ex attr_ex;
-	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(&ep->base_ep);
 	struct ibv_qp *rsvd_qpn;
 	int ret;
 
@@ -360,7 +361,7 @@ int fi_ibv_ep_create_tgt_qp(struct fi_ibv_ep *ep, uint32_t tgt_qpn)
 
 	/* An existing XRC target was not specified, create XRC TGT
 	 * side of new physical connection. */
-	fi_ibv_msg_ep_get_qp_attr(ep, NULL,
+	fi_ibv_msg_ep_get_qp_attr(&ep->base_ep, NULL,
 			(struct ibv_qp_init_attr *)&attr_ex);
 	attr_ex.qp_type = IBV_QPT_XRC_RECV;
 	attr_ex.qp_context = ep;
@@ -378,7 +379,7 @@ int fi_ibv_ep_create_tgt_qp(struct fi_ibv_ep *ep, uint32_t tgt_qpn)
 	return FI_SUCCESS;
 }
 
-static int fi_ibv_put_tgt_qp(struct fi_ibv_ep *ep)
+static int fi_ibv_put_tgt_qp(struct fi_ibv_xrc_ep *ep)
 {
 	int ret;
 
@@ -398,18 +399,18 @@ static int fi_ibv_put_tgt_qp(struct fi_ibv_ep *ep)
 	return FI_SUCCESS;
 }
 
-int fi_ibv_ep_destroy_xrc_qp(struct fi_ibv_ep *ep)
+int fi_ibv_ep_destroy_xrc_qp(struct fi_ibv_xrc_ep *ep)
 {
-	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(&ep->base_ep);
 
-	if (ep->ibv_qp) {
+	if (ep->base_ep.ibv_qp) {
 		fastlock_acquire(&domain->xrc.ini_mgmt_lock);
 		fi_ibv_put_shared_ini_conn(ep);
 		fastlock_release(&domain->xrc.ini_mgmt_lock);
 	}
-	if (ep->id) {
-		rdma_destroy_id(ep->id);
-		ep->id = NULL;
+	if (ep->base_ep.id) {
+		rdma_destroy_id(ep->base_ep.id);
+		ep->base_ep.id = NULL;
 	}
 	if (ep->tgt_ibv_qp)
 		fi_ibv_put_tgt_qp(ep);
@@ -530,20 +531,3 @@ int fi_ibv_domain_xrc_cleanup(struct fi_ibv_domain *domain)
 
 	return 0;
 }
-
-#else /* INCLUDE_VERBS_XRC */
-
-int fi_ibv_domain_xrc_init(struct fi_ibv_domain *domain)
-{
-	/* This function should not be called if XRC is not enabled */
-	assert(0);
-	return -FI_ENOSYS;
-}
-
-int fi_ibv_domain_xrc_cleanup(struct fi_ibv_domain *domain)
-{
-	/* This function should not be called if XRC is not enabled */
-	assert(0);
-	return -FI_ENOSYS;
-}
-#endif
