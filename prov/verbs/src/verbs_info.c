@@ -1053,7 +1053,7 @@ int fi_ibv_init_info(const struct fi_info **all_infos)
 	*all_infos = NULL;
 
 	/* List XRC MSG_EP domain before default RC MSG_EP if requested */
-	if (fi_ibv_prefer_xrc()) {
+	if (fi_ibv_gl_data.msg.prefer_xrc) {
 		ep_type[0] = &verbs_msg_xrc_domain;
 		ep_type[1] = &verbs_msg_domain;
 	} else {

@@ -483,12 +483,6 @@ struct fi_ibv_srq_ep {
 int fi_ibv_srq_context(struct fid_domain *domain, struct fi_rx_attr *attr,
 		       struct fid_ep **rx_ep, void *context);
 
-/* Should XRC transport info preference be given over RC transport info */
-static inline int fi_ibv_prefer_xrc(void)
-{
-	return fi_ibv_gl_data.msg.prefer_xrc;
-}
-
 static inline int fi_ibv_is_xrc(struct fi_info *info)
 {
 	return  (FI_IBV_EP_TYPE(info) == FI_EP_MSG) &&
