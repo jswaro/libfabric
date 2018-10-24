@@ -741,11 +741,15 @@ int fi_ibv_check_ep_attr(const struct fi_info *hints,
 int fi_ibv_check_rx_attr(const struct fi_rx_attr *attr,
 			 const struct fi_info *hints,
 			 const struct fi_info *info);
+
 static inline int fi_ibv_cmp_xrc_domain_name(const char *domain_name,
 					     const char *rdma_name)
 {
-	return strncmp(domain_name, rdma_name, strlen(domain_name) -
-		       strlen(verbs_msg_xrc_domain.suffix));
+	size_t domain_len = strlen(domain_name);
+	size_t suffix_len = strlen(verbs_msg_xrc_domain.suffix);
+
+	return domain_len > suffix_len ? strncmp(domain_name, rdma_name,
+						 domain_len - suffix_len) : -1;
 }
 
 int fi_ibv_cq_signal(struct fid_cq *cq);
