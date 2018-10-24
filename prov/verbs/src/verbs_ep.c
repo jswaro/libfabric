@@ -38,9 +38,25 @@
 
 static struct fi_ops_msg fi_ibv_srq_msg_ops;
 
-static inline int fi_ibv_msg_ep_cmdata_size(void)
+static inline int fi_ibv_msg_ep_cmdata_size(fid_t fid)
 {
-	if (fi_ibv_using_xrc())
+	struct fi_ibv_pep *pep;
+	struct fi_ibv_ep *ep;
+	struct fi_info *info;
+
+	switch (fid->fclass) {
+	case FI_CLASS_PEP:
+		pep = container_of(fid, struct fi_ibv_pep, pep_fid.fid);
+		info = pep->info;
+		break;
+	case FI_CLASS_EP:
+		ep = container_of(fid, struct fi_ibv_ep, util_ep.ep_fid.fid);
+		info = ep->info;
+		break;
+	default:
+		info = NULL;
+	};
+	if (fi_ibv_is_xrc(info))
 		return VERBS_CM_DATA_SIZE - sizeof(struct fi_ibv_xrc_cm_data);
 	else
 		return VERBS_CM_DATA_SIZE;
@@ -55,7 +71,7 @@ static int fi_ibv_ep_getopt(fid_t fid, int level, int optname,
 		case FI_OPT_CM_DATA_SIZE:
 			if (*optlen < sizeof(size_t))
 				return -FI_ETOOSMALL;
-			*((size_t *) optval) = fi_ibv_msg_ep_cmdata_size();
+			*((size_t *) optval) = fi_ibv_msg_ep_cmdata_size(fid);
 			*optlen = sizeof(size_t);
 			return 0;
 		default:
@@ -168,7 +184,7 @@ static int fi_ibv_ep_close(fid_t fid)
 
 	switch (ep->util_ep.type) {
 	case FI_EP_MSG:
-		if (fi_ibv_using_xrc())
+		if (fi_ibv_is_xrc(ep->info))
 			fi_ibv_ep_xrc_close(ep);
 		else
 			rdma_destroy_ep(ep->id);
@@ -240,7 +256,7 @@ static int fi_ibv_ep_bind(struct fid *fid, struct fid *bfid, uint64_t flags)
 			ret = rdma_migrate_id(ep->id, ep->eq->channel);
 			if (ret)
 				return -errno;
-			if (fi_ibv_using_xrc()) {
+			if (fi_ibv_is_xrc(ep->info)) {
 				ret = fi_ibv_ep_xrc_set_tgt_chan(ep);
 				if (ret)
 					return -errno;
@@ -547,7 +563,7 @@ static int fi_ibv_ep_enable(struct fid_ep *ep_fid)
 			} else {
 				ep->util_ep.ep_fid.msg = &fi_ibv_msg_srq_ep_msg_ops;
 			}
-		} else if (fi_ibv_using_xrc()) {
+		} else if (domain->use_xrc) {
 			VERBS_WARN(FI_LOG_EP_CTRL, "XRC EP_MSG not bound "
 				   "to srx_context\n");
 			return -FI_EINVAL;
@@ -800,7 +816,9 @@ int fi_ibv_open_ep(struct fid_domain *domain, struct fi_info *info,
 		} else if (info->handle->fclass == FI_CLASS_CONNREQ) {
 			connreq = container_of(info->handle,
 					       struct fi_ibv_connreq, handle);
-			if (fi_ibv_using_xrc()) {
+			if (dom->use_xrc) {
+				assert(connreq->is_xrc);
+
 				if (!connreq->xrc.is_reciprocal) {
 					ret = fi_ibv_process_xrc_connreq(ep,
 								connreq);
@@ -886,7 +904,7 @@ static int fi_ibv_pep_bind(fid_t fid, struct fid *bfid, uint64_t flags)
 	 * it limits an EQ to a single passive endpoint. TODO: implement
 	 * a more general solution.
 	 */
-	if (fi_ibv_using_xrc()) {
+	if (fi_ibv_is_xrc(pep->info)) {
 	       if (pep->eq->xrc.pep_port) {
 			VERBS_WARN(FI_LOG_EP_CTRL,
 				   "XRC limits EQ binding to a single PEP\n");
@@ -976,7 +994,7 @@ int fi_ibv_passive_ep(struct fid_fabric *fabric, struct fi_info *info,
 	}
 
 	/* Need to be able to make reciprocal XRC connections */
-	if (fi_ibv_using_xrc() && _pep->info->dest_addr) {
+	if (fi_ibv_is_xrc(_pep->info) && _pep->info->dest_addr) {
 		free(_pep->info->dest_addr);
 		_pep->info->dest_addr = NULL;
 		_pep->info->dest_addrlen = 0;

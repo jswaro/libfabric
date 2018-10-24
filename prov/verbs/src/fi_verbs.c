@@ -68,7 +68,7 @@ struct fi_ibv_gl_data fi_ibv_gl_data = {
 	.msg			= {
 		/* Disabled by default. Use XRC transport for message
 		 * endpoint only if it is explicitly requested */
-		.use_xrc		= 0,
+		.prefer_xrc		= 0,
 		.xrcd_filename		= "/tmp/verbs_xrcd",
 	},
 };
@@ -547,11 +547,11 @@ static int fi_ibv_read_params(void)
 		return -FI_EINVAL;
 	}
 
-	if (fi_ibv_get_param_bool("use_xrc", "Use XRC transport for message "
-				  "endpoint instead of RC.",
-				  &fi_ibv_gl_data.msg.use_xrc)) {
+	if (fi_ibv_get_param_bool("prefer_xrc", "Order XRC transport fi_infos"
+				  "ahead of RC. Default orders RC first.",
+				  &fi_ibv_gl_data.msg.prefer_xrc)) {
 		VERBS_WARN(FI_LOG_CORE,
-			   "Invalid value of use_xrc\n");
+			   "Invalid value of prefer_xrc\n");
 		return -FI_EINVAL;
 	}
 

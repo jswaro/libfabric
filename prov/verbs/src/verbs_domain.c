@@ -308,7 +308,9 @@ static int fi_ibv_open_device_by_name(struct fi_ibv_domain *domain, const char *
 		const char *rdma_name = ibv_get_device_name(dev_list[i]->device);
 		switch (domain->ep_type) {
 		case FI_EP_MSG:
-			ret = strcmp(name, rdma_name);
+			ret = domain->use_xrc ?
+				fi_ibv_cmp_xrc_domain_name(name, rdma_name) :
+				strcmp(name, rdma_name);
 			break;
 		case FI_EP_DGRAM:
 			ret = strncmp(name, rdma_name,
@@ -388,9 +390,7 @@ static int fi_ibv_domain_check_xrc(struct fi_ibv_domain *domain)
 	struct ibv_device_attr attr;
 	int ret;
 
-	domain->use_xrc = 0;
-
-	if (domain->ep_type != FI_EP_MSG || !fi_ibv_using_xrc())
+	if (!domain->use_xrc)
 		return 0;
 
 	ret = ibv_query_device(domain->verbs, &attr);
@@ -433,9 +433,12 @@ fi_ibv_domain(struct fid_fabric *fabric, struct fi_info *info,
 		goto err2;
 
 	_domain->ep_type = FI_IBV_EP_TYPE(info);
+	_domain->use_xrc = fi_ibv_is_xrc(info);
+
 	ret = fi_ibv_open_device_by_name(_domain, info->domain_attr->name);
 	if (ret)
 		goto err3;
+
 	_domain->pd = ibv_alloc_pd(_domain->verbs);
 	if (!_domain->pd) {
 		ret = -errno;

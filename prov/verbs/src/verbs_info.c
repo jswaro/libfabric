@@ -133,12 +133,21 @@ const struct fi_tx_attr verbs_dgram_tx_attr = {
 const struct verbs_ep_domain verbs_msg_domain = {
 	.suffix			= "",
 	.type			= FI_EP_MSG,
+	.protocol		= FI_PROTO_UNSPEC,
+	.caps			= VERBS_MSG_CAPS,
+};
+
+const struct verbs_ep_domain verbs_msg_xrc_domain = {
+	.suffix			= "-xrc",
+	.type			= FI_EP_MSG,
+	.protocol		= FI_PROTO_RDMA_CM_IB_XRC,
 	.caps			= VERBS_MSG_CAPS,
 };
 
 const struct verbs_ep_domain verbs_dgram_domain = {
 	.suffix			= "-dgram",
 	.type			= FI_EP_DGRAM,
+	.protocol		= FI_PROTO_UNSPEC,
 	.caps			= VERBS_DGRAM_CAPS,
 };
 
@@ -158,6 +167,7 @@ int fi_ibv_check_ep_attr(const struct fi_info *hints,
 	switch (hints->ep_attr->protocol) {
 	case FI_PROTO_UNSPEC:
 	case FI_PROTO_RDMA_CM_IB_RC:
+	case FI_PROTO_RDMA_CM_IB_XRC:
 	case FI_PROTO_IWARP:
 	case FI_PROTO_IB_UD:
 		break;
@@ -390,7 +400,7 @@ static int fi_ibv_rai_to_fi(struct rdma_addrinfo *rai, struct fi_info *fi)
 }
 
 static inline int fi_ibv_get_qp_cap(struct ibv_context *ctx,
-				    struct fi_info *info)
+				    struct fi_info *info, uint32_t protocol)
 {
 	struct ibv_pd *pd;
 	struct ibv_cq *cq;
@@ -412,7 +422,7 @@ static inline int fi_ibv_get_qp_cap(struct ibv_context *ctx,
 		goto err1;
 	}
 
-	if (fi_ibv_is_xrc(info))
+	if (protocol == FI_PROTO_RDMA_CM_IB_XRC)
 		qp_type = IBV_QPT_XRC_SEND;
 	else
 		qp_type = (info->ep_attr->type != FI_EP_DGRAM) ?
@@ -467,7 +477,7 @@ static int fi_ibv_mtu_type_to_len(enum ibv_mtu mtu_type)
 }
 
 static int fi_ibv_get_device_attrs(struct ibv_context *ctx,
-				   struct fi_info *info)
+				   struct fi_info *info, uint32_t protocol)
 {
 	struct ibv_device_attr device_attr;
 	struct ibv_port_attr port_attr;
@@ -482,7 +492,7 @@ static int fi_ibv_get_device_attrs(struct ibv_context *ctx,
 		return -errno;
 	}
 
-	if (fi_ibv_is_xrc(info)) {
+	if (protocol == FI_PROTO_RDMA_CM_IB_XRC) {
 		if (!(device_attr.device_cap_flags & IBV_DEVICE_XRC)) {
 			VERBS_WARN(FI_LOG_FABRIC, "XRC not supported\n");
 			return -FI_EINVAL;
@@ -513,7 +523,7 @@ static int fi_ibv_get_device_attrs(struct ibv_context *ctx,
 						      device_attr.max_srq_sge) :
 						  device_attr.max_sge;
 
-	ret = fi_ibv_get_qp_cap(ctx, info);
+	ret = fi_ibv_get_qp_cap(ctx, info, protocol);
 	if (ret)
 		return ret;
 
@@ -596,7 +606,8 @@ static int fi_ibv_alloc_info(struct ibv_context *ctx, struct fi_info **info,
 	int ret;
 
 	if ((ctx->device->transport_type != IBV_TRANSPORT_IB) &&
-	    (ep_dom->type == FI_EP_DGRAM))
+	    ((ep_dom->type == FI_EP_DGRAM) ||
+	    (ep_dom->protocol == FI_PROTO_RDMA_CM_IB_XRC)))
 		return -FI_EINVAL;
 
 	if (!(fi = fi_allocinfo()))
@@ -630,7 +641,7 @@ static int fi_ibv_alloc_info(struct ibv_context *ctx, struct fi_info **info,
 	fi->tx_attr->caps = ep_dom->caps;
 	fi->rx_attr->caps = ep_dom->caps;
 
-	ret = fi_ibv_get_device_attrs(ctx, fi);
+	ret = fi_ibv_get_device_attrs(ctx, fi, ep_dom->protocol);
 	if (ret)
 		goto err;
 
@@ -654,7 +665,9 @@ static int fi_ibv_alloc_info(struct ibv_context *ctx, struct fi_info **info,
 
 		switch (ep_dom->type) {
 		case FI_EP_MSG:
-			fi->ep_attr->protocol = FI_PROTO_RDMA_CM_IB_RC;
+			fi->ep_attr->protocol =
+				ep_dom->protocol == FI_PROTO_UNSPEC ?
+				FI_PROTO_RDMA_CM_IB_RC : ep_dom->protocol;
 			break;
 		case FI_EP_DGRAM:
 			fi->ep_attr->protocol = FI_PROTO_IB_UD;
@@ -1028,18 +1041,26 @@ rai_to_fi:
 				     NULL, NULL);
 }
 
+#define VERBS_NUM_DOMAIN_TYPES		3
+
 int fi_ibv_init_info(const struct fi_info **all_infos)
 {
 	struct ibv_context **ctx_list;
 	struct fi_info *fi = NULL, *tail = NULL;
-	const struct verbs_ep_domain *ep_type[] = {
-		&verbs_msg_domain,
-		&verbs_dgram_domain,
-		NULL,
-	};
+	const struct verbs_ep_domain *ep_type[VERBS_NUM_DOMAIN_TYPES];
 	int ret = 0, i, j, num_devices;
 
 	*all_infos = NULL;
+
+	/* List XRC MSG_EP domain before default RC MSG_EP if requested */
+	if (fi_ibv_prefer_xrc()) {
+		ep_type[0] = &verbs_msg_xrc_domain;
+		ep_type[1] = &verbs_msg_domain;
+	} else {
+		ep_type[0] = &verbs_msg_domain;
+		ep_type[1] = &verbs_msg_xrc_domain;
+	}
+	ep_type[2] = &verbs_dgram_domain;
 
 	if (!fi_ibv_gl_data.fork_unsafe) {
 		VERBS_INFO(FI_LOG_CORE, "Enabling IB fork support\n");
@@ -1068,7 +1089,7 @@ int fi_ibv_init_info(const struct fi_info **all_infos)
 	}
 
 	for (i = 0; i < num_devices; i++) {
-		for (j = 0; ep_type[j]; j++) {
+		for (j = 0; j < VERBS_NUM_DOMAIN_TYPES; j++) {
 			ret = fi_ibv_alloc_info(ctx_list[i], &fi, ep_type[j]);
 			if (!ret) {
 				if (!*all_infos)

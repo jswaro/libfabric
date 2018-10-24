@@ -120,6 +120,9 @@
 
 #define FI_IBV_EP_TYPE(info)						\
 	((info && info->ep_attr) ? info->ep_attr->type : FI_EP_MSG)
+#define FI_IBV_EP_PROTO(info)						\
+	(((info) && (info)->ep_attr) ? (info)->ep_attr->protocol :	\
+					FI_PROTO_UNSPEC)
 
 #define FI_IBV_MEM_ALIGNMENT (64)
 #define FI_IBV_BUF_ALIGNMENT (4096) /* TODO: Page or MTU size */
@@ -174,7 +177,7 @@ extern struct fi_ibv_gl_data {
 	} dgram;
 
 	struct {
-		int	use_xrc;
+		int	prefer_xrc;
 		char	*xrcd_filename;
 	} msg;
 } fi_ibv_gl_data;
@@ -480,15 +483,16 @@ struct fi_ibv_srq_ep {
 int fi_ibv_srq_context(struct fid_domain *domain, struct fi_rx_attr *attr,
 		       struct fid_ep **rx_ep, void *context);
 
-/* Used to determine if XRC has been enabled and requested */
-static inline int fi_ibv_using_xrc(void)
+/* Should XRC transport info preference be given over RC transport info */
+static inline int fi_ibv_prefer_xrc(void)
 {
-	return fi_ibv_gl_data.msg.use_xrc;
+	return fi_ibv_gl_data.msg.prefer_xrc;
 }
 
 static inline int fi_ibv_is_xrc(struct fi_info *info)
 {
-	return fi_ibv_using_xrc() && (FI_IBV_EP_TYPE(info) == FI_EP_MSG);
+	return  (FI_IBV_EP_TYPE(info) == FI_EP_MSG) &&
+		(FI_IBV_EP_PROTO(info) == FI_PROTO_RDMA_CM_IB_XRC);
 }
 
 static inline int fi_ibv_is_xrc_send_qp(enum ibv_qp_type qp_type)
@@ -669,6 +673,7 @@ struct fi_ibv_connreq {
 
 	/* Support for XRC bidirectional connections, and
 	 * non-RDMA CM managed QP. */
+	int				is_xrc;
 	struct fi_ibv_xrc_conn_info	xrc;
 };
 
@@ -730,16 +735,24 @@ int fi_ibv_get_rdma_rai(const char *node, const char *service, uint64_t flags,
 struct verbs_ep_domain {
 	char			*suffix;
 	enum fi_ep_type		type;
+	uint32_t		protocol;
 	uint64_t		caps;
 };
 
 extern const struct verbs_ep_domain verbs_dgram_domain;
+extern const struct verbs_ep_domain verbs_msg_xrc_domain;
 
 int fi_ibv_check_ep_attr(const struct fi_info *hints,
 			 const struct fi_info *info);
 int fi_ibv_check_rx_attr(const struct fi_rx_attr *attr,
 			 const struct fi_info *hints,
 			 const struct fi_info *info);
+static inline int fi_ibv_cmp_xrc_domain_name(const char *domain_name,
+					     const char *rdma_name)
+{
+	return strncmp(domain_name, rdma_name, strlen(domain_name) -
+		       strlen(verbs_msg_xrc_domain.suffix));
+}
 
 int fi_ibv_cq_signal(struct fid_cq *cq);
 

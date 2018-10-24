@@ -280,7 +280,7 @@ fi_ibv_msg_ep_reject(struct fid_pep *pep, fid_t handle,
 	cm_hdr = alloca(sizeof(*cm_hdr) + paramlen);
 	fi_ibv_msg_ep_prepare_cm_data(param, paramlen, cm_hdr);
 
-	if (fi_ibv_using_xrc())
+	if (connreq->is_xrc)
 		ret = fi_ibv_msg_xrc_ep_reject(connreq, cm_hdr,
 				(uint8_t)(sizeof(*cm_hdr) + paramlen));
 

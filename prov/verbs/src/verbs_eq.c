@@ -128,6 +128,20 @@ static int fi_ibv_eq_set_xrc_info(struct rdma_cm_event *event,
 }
 
 static int
+fi_ibv_pep_dev_domain_match(struct fi_info *hints, const char *devname)
+{
+	int ret;
+
+	if ((FI_IBV_EP_PROTO(hints)) == FI_PROTO_RDMA_CM_IB_XRC)
+		ret = fi_ibv_cmp_xrc_domain_name(hints->domain_attr->name,
+						 devname);
+	else
+		ret = strcmp(hints->domain_attr->name, devname);
+
+	return ret;
+}
+
+static int
 fi_ibv_eq_cm_getinfo(struct fi_ibv_fabric *fab, struct rdma_cm_event *event,
 		     struct fi_info *pep_info, struct fi_info **info)
 {
@@ -149,7 +163,7 @@ fi_ibv_eq_cm_getinfo(struct fi_ibv_fabric *fab, struct rdma_cm_event *event,
 		if (!(hints->domain_attr->name = strdup(devname)))
 			goto err1;
 	} else {
-		if (strcmp(hints->domain_attr->name, devname)) {
+		if (fi_ibv_pep_dev_domain_match(hints, devname)) {
 			VERBS_WARN(FI_LOG_EQ, "Passive endpoint domain: %s does"
 				   " not match device: %s where we got a "
 				   "connection request\n",
@@ -192,7 +206,8 @@ fi_ibv_eq_cm_getinfo(struct fi_ibv_fabric *fab, struct rdma_cm_event *event,
 	connreq->handle.fclass = FI_CLASS_CONNREQ;
 	connreq->id = event->id;
 
-	if (fi_ibv_using_xrc()) {
+	if (fi_ibv_is_xrc(*info)) {
+		connreq->is_xrc = 1;
 		ret = fi_ibv_eq_set_xrc_info(event, &connreq->xrc);
 		if (ret)
 			goto err3;
@@ -438,6 +453,7 @@ fi_ibv_eq_cm_process_event(struct fi_ibv_eq *eq,
 	fid_t fid = cma_event->id->context;
 	struct fi_ibv_pep *pep =
 		container_of(fid, struct fi_ibv_pep, pep_fid);
+	struct fi_ibv_ep *ep;
 
 	*acked = 0;
 
@@ -455,7 +471,7 @@ fi_ibv_eq_cm_process_event(struct fi_ibv_eq *eq,
 			goto err;
 		}
 
-		if (fi_ibv_using_xrc()) {
+		if (fi_ibv_is_xrc(entry->info)) {
 			ret = fi_ibv_eq_xrc_connreq_event(eq, entry, &priv_data,
 							  &priv_datalen);
 			if (ret == -FI_EAGAIN)
@@ -472,14 +488,15 @@ fi_ibv_eq_cm_process_event(struct fi_ibv_eq *eq,
 			if (ret)
 				return ret;
 		}
-
-		if (fi_ibv_using_xrc())
+		ep = container_of(fid, struct fi_ibv_ep, util_ep.ep_fid);
+		if (fi_ibv_is_xrc(ep->info))
 			return fi_ibv_eq_xrc_connected_event(eq, cma_event,
 							     entry, len, acked);
 		entry->info = NULL;
 		break;
 	case RDMA_CM_EVENT_DISCONNECTED:
-		if (fi_ibv_using_xrc())
+		ep = container_of(fid, struct fi_ibv_ep, util_ep.ep_fid);
+		if (fi_ibv_is_xrc(ep->info))
 			return -FI_EAGAIN;
 		*event = FI_SHUTDOWN;
 		entry->info = NULL;
@@ -491,7 +508,8 @@ fi_ibv_eq_cm_process_event(struct fi_ibv_eq *eq,
 		eq->err.err = -cma_event->status;
 		goto err;
 	case RDMA_CM_EVENT_REJECTED:
-		if (fi_ibv_using_xrc()) {
+		ep = container_of(fid, struct fi_ibv_ep, util_ep.ep_fid);
+		if (fi_ibv_is_xrc(ep->info)) {
 			ret = fi_ibv_eq_xrc_rej_event(eq, cma_event);
 			if (ret == -FI_EAGAIN)
 				return ret;
@@ -729,12 +747,9 @@ static int fi_ibv_eq_close(fid_t fid)
 
 	dlistfd_head_free(&eq->list_head);
 
-	if (fi_ibv_using_xrc()) {
-		ofi_idx_reset(eq->xrc.conn_key_map);
-		free(eq->xrc.conn_key_map);
-		fastlock_destroy(&eq->xrc.idx_lock);
-	}
-
+	ofi_idx_reset(eq->xrc.conn_key_map);
+	free(eq->xrc.conn_key_map);
+	fastlock_destroy(&eq->xrc.idx_lock);
 	fastlock_destroy(&eq->lock);
 	free(eq);
 
@@ -763,17 +778,13 @@ int fi_ibv_eq_open(struct fid_fabric *fabric, struct fi_eq_attr *attr,
 	_eq->fab = container_of(fabric, struct fi_ibv_fabric,
 				util_fabric.fabric_fid);
 
-	if (fi_ibv_using_xrc()) {
-		ofi_key_idx_init(&_eq->xrc.conn_key_idx, VERBS_TAG_INDEX_BITS);
-		_eq->xrc.conn_key_map = calloc(1,
-					    sizeof(*_eq->xrc.conn_key_map));
-		if (!_eq->xrc.conn_key_map) {
-			ret = -ENOMEM;
-			goto err0;
-		}
-		fastlock_init(&_eq->xrc.idx_lock);
+	ofi_key_idx_init(&_eq->xrc.conn_key_idx, VERBS_TAG_INDEX_BITS);
+	_eq->xrc.conn_key_map = calloc(1, sizeof(*_eq->xrc.conn_key_map));
+	if (!_eq->xrc.conn_key_map) {
+		ret = -ENOMEM;
+		goto err0;
 	}
-
+	fastlock_init(&_eq->xrc.idx_lock);
 	fastlock_init(&_eq->lock);
 	ret = dlistfd_head_init(&_eq->list_head);
 	if (ret) {
@@ -838,10 +849,8 @@ err2:
 	dlistfd_head_free(&_eq->list_head);
 err1:
 	fastlock_destroy(&_eq->lock);
-	if (fi_ibv_using_xrc()) {
-		fastlock_destroy(&_eq->xrc.idx_lock);
-		free(_eq->xrc.conn_key_map);
-	}
+	fastlock_destroy(&_eq->xrc.idx_lock);
+	free(_eq->xrc.conn_key_map);
 err0:
 	free(_eq);
 	return ret;
