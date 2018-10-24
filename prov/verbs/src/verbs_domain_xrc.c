@@ -177,7 +177,7 @@ void fi_ibv_put_shared_ini_conn(struct fi_ibv_xrc_ep *ep)
 
 	/* Tear down physical INI/TGT when no longer being used */
 	if (!ofi_atomic_dec32(&ini_conn->ref_cnt)) {
-		if (ibv_destroy_qp(ini_conn->ini_qp))
+		if (ini_conn->ini_qp && ibv_destroy_qp(ini_conn->ini_qp))
 			VERBS_WARN(FI_LOG_FABRIC, "destroy of QP error %d\n",
 				   errno);
 
@@ -233,13 +233,15 @@ void fi_ibv_sched_ini_conn(struct fi_ibv_ini_shared_conn *ini_conn)
 		dlist_pop_front(&ini_conn->pending_list,
 				struct fi_ibv_xrc_ep, ep, ini_conn_entry);
 
+		dlist_insert_tail(&ep->ini_conn_entry,
+				  &ep->ini_conn->active_list);
 		last_state = ep->ini_conn->state;
 		if (last_state == FI_IBV_INI_QP_UNCONNECTED) {
 			ret = fi_ibv_create_ini_qp(ep);
 			if (ret) {
 				VERBS_WARN(FI_LOG_FABRIC, "Failed to create "
 					   "physical INI QP %d\n", ret);
-				abort();
+				goto err;
 			}
 			ep->ini_conn->ini_qp = ep->base_ep.id->qp;
 			ep->ini_conn->state = FI_IBV_INI_QP_CONNECTING;
@@ -250,7 +252,7 @@ void fi_ibv_sched_ini_conn(struct fi_ibv_ini_shared_conn *ini_conn)
 				if (ret) {
 					VERBS_WARN(FI_LOG_FABRIC, "rsvd_ini_qpn"
 						  " create err %d\n", ret);
-					abort();
+					goto err;
 				}
 			}
 		}
@@ -258,12 +260,10 @@ void fi_ibv_sched_ini_conn(struct fi_ibv_ini_shared_conn *ini_conn)
 		assert(ep->ini_conn->ini_qp);
 
 		ep->base_ep.ibv_qp = ep->ini_conn->ini_qp;
-		dlist_insert_tail(&ep->ini_conn_entry,
-				  &ep->ini_conn->active_list);
-
 		ret = fi_ibv_process_ini_conn(ep, ep->conn_setup->pending_recip,
 					      ep->conn_setup->pending_param,
 					      ep->conn_setup->pending_paramlen);
+err:
 		if (ret) {
 			ep->ini_conn->state = last_state;
 			fi_ibv_put_shared_ini_conn(ep);

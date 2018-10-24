@@ -349,7 +349,8 @@ err:
 }
 
 static size_t
-fi_ibv_eq_xrc_recip_conn_event(struct fi_ibv_xrc_ep *ep,
+fi_ibv_eq_xrc_recip_conn_event(struct fi_ibv_eq *eq,
+			       struct fi_ibv_xrc_ep *ep,
 			       struct rdma_cm_event *cma_event,
 			       struct fi_eq_cm_entry *entry, size_t len)
 {
@@ -365,10 +366,14 @@ fi_ibv_eq_xrc_recip_conn_event(struct fi_ibv_xrc_ep *ep,
 	/* If this is the reciprocal active side notification */
 	if (cma_event->param.conn.private_data) {
 		ret = fi_ibv_eq_set_xrc_info(cma_event, &xrc_info);
-
-		/* Version should not change between original and reciprocal */
-		if (ret)
-			abort();
+		if (ret) {
+			VERBS_WARN(FI_LOG_FABRIC,
+				   "Reciprocal connection protocol mismatch\n");
+			eq->err.err = -ret;
+			eq->err.prov_errno = ret;
+			eq->err.fid = fid;
+			return -FI_EAVAIL;
+		}
 
 		ep->peer_srqn = xrc_info.conn_data;
 		fi_ibv_ep_ini_conn_done(ep, xrc_info.conn_data,
@@ -429,7 +434,7 @@ fi_ibv_eq_xrc_connected_event(struct fi_ibv_eq *eq,
 	if (ep->conn_state == FI_IBV_XRC_ORIG_CONNECTING)
 		return fi_ibv_eq_xrc_conn_event(ep, cma_event, entry);
 
-	ret = fi_ibv_eq_xrc_recip_conn_event(ep, cma_event, entry, len);
+	ret = fi_ibv_eq_xrc_recip_conn_event(eq, ep, cma_event, entry, len);
 
 	/* Bidirectional connection setup is complete, destroy RDMA CM
 	 * ID(s) since  RDMA CM is used for connection setup only */
