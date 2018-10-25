@@ -33,6 +33,54 @@
 #include "config.h"
 #include "fi_verbs.h"
 
+void fi_ibv_next_xrc_conn_state(struct fi_ibv_xrc_ep *ep)
+{
+	switch (ep->conn_state) {
+	case FI_IBV_XRC_UNCONNECTED:
+		ep->conn_state = FI_IBV_XRC_ORIG_CONNECTING;
+		break;
+	case FI_IBV_XRC_ORIG_CONNECTING:
+		ep->conn_state = FI_IBV_XRC_ORIG_CONNECTED;
+		break;
+	case FI_IBV_XRC_ORIG_CONNECTED:
+		ep->conn_state = FI_IBV_XRC_RECIP_CONNECTING;
+		break;
+	case FI_IBV_XRC_RECIP_CONNECTING:
+		ep->conn_state = FI_IBV_XRC_CONNECTED;
+		break;
+	case FI_IBV_XRC_CONNECTED:
+		break;
+	default:
+		assert(0);
+		VERBS_WARN(FI_LOG_FABRIC, "Unkown XRC connection state %d\n",
+			   ep->conn_state);
+	}
+}
+
+void fi_ibv_prev_xrc_conn_state(struct fi_ibv_xrc_ep *ep)
+{
+	switch (ep->conn_state) {
+	case FI_IBV_XRC_UNCONNECTED:
+		break;
+	case FI_IBV_XRC_ORIG_CONNECTING:
+		ep->conn_state = FI_IBV_XRC_UNCONNECTED;
+		break;
+	case FI_IBV_XRC_ORIG_CONNECTED:
+		ep->conn_state = FI_IBV_XRC_ORIG_CONNECTING;
+		break;
+	case FI_IBV_XRC_RECIP_CONNECTING:
+		ep->conn_state = FI_IBV_XRC_ORIG_CONNECTED;
+		break;
+	case FI_IBV_XRC_CONNECTED:
+		ep->conn_state = FI_IBV_XRC_RECIP_CONNECTING;
+		break;
+	default:
+		assert(0);
+		VERBS_WARN(FI_LOG_FABRIC, "Unkown XRC connection state %d\n",
+			   ep->conn_state);
+	}
+}
+
 void fi_ibv_save_priv_data(struct fi_ibv_xrc_ep *ep, const void *data,
 			   size_t len)
 {
@@ -294,14 +342,14 @@ int fi_ibv_accept_xrc(struct fi_ibv_xrc_ep *ep, int reciprocal,
 
 	assert(ep->conn_state == FI_IBV_XRC_UNCONNECTED ||
 	       ep->conn_state == FI_IBV_XRC_ORIG_CONNECTED);
-	ep->conn_state++;
+	fi_ibv_next_xrc_conn_state(ep);
 
 	ret = rdma_accept(ep->tgt_id, &conn_param);
 	if (ret) {
 		ret = -errno;
 		VERBS_INFO_ERRNO(FI_LOG_EP_CTRL,
 				 "XRC TGT, ibv_open_qp", errno);
-		ep->conn_state--;
+		fi_ibv_prev_xrc_conn_state(ep);
 	}
 	free(connreq);
 	return ret;

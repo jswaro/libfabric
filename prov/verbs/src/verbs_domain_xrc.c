@@ -305,13 +305,13 @@ int fi_ibv_process_ini_conn(struct fi_ibv_xrc_ep *ep,int reciprocal,
 
 	assert(ep->conn_state == FI_IBV_XRC_UNCONNECTED ||
 	       ep->conn_state == FI_IBV_XRC_ORIG_CONNECTED);
-	ep->conn_state++;
+	fi_ibv_next_xrc_conn_state(ep);
 
 	ret = rdma_connect(ep->base_ep.id, &conn_param) ? -errno : 0;
 	if (ret) {
 		ret = -errno;
 		VERBS_INFO_ERRNO(FI_LOG_FABRIC, "rdma_connect", errno);
-		ep->conn_state--;
+		fi_ibv_prev_xrc_conn_state(ep);
 	}
 	return ret;
 }

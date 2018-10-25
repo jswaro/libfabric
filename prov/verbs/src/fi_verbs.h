@@ -679,6 +679,8 @@ void fi_ibv_msg_ep_get_qp_attr(struct fi_ibv_ep *ep,
 int fi_ibv_process_xrc_connreq(struct fi_ibv_ep *ep,
 			       struct fi_ibv_connreq *connreq);
 
+void fi_ibv_next_xrc_conn_state(struct fi_ibv_xrc_ep *ep);
+void fi_ibv_prev_xrc_conn_state(struct fi_ibv_xrc_ep *ep);
 void fi_ibv_eq_set_xrc_conn_tag(struct fi_ibv_xrc_ep *ep);
 void fi_ibv_eq_clear_xrc_conn_tag(struct fi_ibv_xrc_ep *ep);
 struct fi_ibv_xrc_ep *fi_ibv_eq_xrc_conn_tag2ep(struct fi_ibv_eq *eq,

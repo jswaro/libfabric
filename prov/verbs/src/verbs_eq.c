@@ -313,7 +313,7 @@ fi_ibv_eq_xrc_conn_event(struct fi_ibv_xrc_ep *ep,
 
 	VERBS_DBG(FI_LOG_FABRIC, "EP %p INITIAL CONNECTION DONE state %d\n",
 		  ep, ep->conn_state);
-	ep->conn_state++;
+	fi_ibv_next_xrc_conn_state(ep);
 
 	/*
 	 * Original application initiated connect is done, if the passive
@@ -323,7 +323,7 @@ fi_ibv_eq_xrc_conn_event(struct fi_ibv_xrc_ep *ep,
 	if (priv_data) {
 		ret = fi_ibv_eq_set_xrc_info(cma_event, &xrc_info);
 		if (ret) {
-			ep->conn_state--;
+			fi_ibv_prev_xrc_conn_state(ep);
 			rdma_disconnect(ep->base_ep.id);
 			goto err;
 		}
@@ -337,7 +337,7 @@ fi_ibv_eq_xrc_conn_event(struct fi_ibv_xrc_ep *ep,
 		ret = fi_ibv_connect_xrc(ep, NULL, FI_IBV_RECIP_CONN, &cm_data,
 					 sizeof(cm_data));
 		if (ret) {
-			ep->conn_state--;
+			fi_ibv_prev_xrc_conn_state(ep);
 			rdma_disconnect(ep->tgt_id);
 			goto err;
 		}
@@ -358,8 +358,7 @@ fi_ibv_eq_xrc_recip_conn_event(struct fi_ibv_eq *eq,
 	struct fi_ibv_xrc_conn_info xrc_info;
 	int ret;
 
-	ep->conn_state++;
-
+	fi_ibv_next_xrc_conn_state(ep);
 	VERBS_DBG(FI_LOG_FABRIC, "EP %p RECIPROCAL CONNECTION DONE state %d\n",
 		  ep, ep->conn_state);
 
