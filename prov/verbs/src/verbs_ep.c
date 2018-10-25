@@ -395,8 +395,8 @@ static int fi_ibv_process_xrc_preposted(struct fi_ibv_srq_ep *srq_ep)
 	struct slist_entry *entry;
 	int ret;
 
-	while (!slist_empty(&srq_ep->prepost_list)) {
-		entry = slist_remove_head(&srq_ep->prepost_list);
+	while (!slist_empty(&srq_ep->xrc.prepost_list)) {
+		entry = slist_remove_head(&srq_ep->xrc.prepost_list);
 		recv = container_of(entry, struct fi_ibv_xrc_srx_prepost,
 				    prepost_entry);
 		ret = fi_recv(&srq_ep->ep_fid, recv->buf, recv->len,
@@ -426,14 +426,14 @@ static int fi_ibv_ep_enable_xrc(struct fi_ibv_ep *ep)
 	dlist_init(&xrc_ep->ini_conn_entry);
 	xrc_ep->conn_state = FI_IBV_XRC_UNCONNECTED;
 
-	fastlock_acquire(&srq_ep->prepost_lock);
+	fastlock_acquire(&srq_ep->xrc.prepost_lock);
 	if (srq_ep->srq) {
 		/*
 		 * Multiple endpoints bound to the same XRC SRX context have
 		 * the restriction that they must be bound to the same RX CQ
 		 */
 		if (!cq->xrc_srq_ep || srq_ep->srq != cq->xrc_srq_ep->srq) {
-			fastlock_release(&srq_ep->prepost_lock);
+			fastlock_release(&srq_ep->xrc.prepost_lock);
 			VERBS_WARN(FI_LOG_EP_CTRL, "SRX_CTX/CQ mismatch\n");
 			return -FI_EINVAL;
 		}
@@ -443,8 +443,8 @@ static int fi_ibv_ep_enable_xrc(struct fi_ibv_ep *ep)
 	}
 
 	memset(&attr, 0, sizeof(attr));
-	attr.attr.max_wr = srq_ep->max_recv_wr;
-	attr.attr.max_sge = srq_ep->max_sge;
+	attr.attr.max_wr = srq_ep->xrc.max_recv_wr;
+	attr.attr.max_sge = srq_ep->xrc.max_sge;
 	attr.comp_mask = IBV_SRQ_INIT_ATTR_TYPE | IBV_SRQ_INIT_ATTR_XRCD |
 			 IBV_SRQ_INIT_ATTR_CQ | IBV_SRQ_INIT_ATTR_PD;
 	attr.srq_type = IBV_SRQT_XRC;
@@ -465,7 +465,7 @@ static int fi_ibv_ep_enable_xrc(struct fi_ibv_ep *ep)
 	srq_ep->ep_fid.msg = &fi_ibv_srq_msg_ops;
 	ret = fi_ibv_process_xrc_preposted(srq_ep);
 done:
-	fastlock_release(&srq_ep->prepost_lock);
+	fastlock_release(&srq_ep->xrc.prepost_lock);
 
 	return ret;
 }
@@ -1170,18 +1170,18 @@ fi_ibv_xrc_srq_ep_prepost_recv(struct fid_ep *ep_fid, void *buf, size_t len,
 	struct fi_ibv_xrc_srx_prepost *recv;
 	ssize_t ret;
 
-	fastlock_acquire(&ep->prepost_lock);
+	fastlock_acquire(&ep->xrc.prepost_lock);
 
 	/* Handle race that can occur when SRQ is created and pre-post
 	 * receive message function is swapped out. */
 	if (ep->srq) {
-		fastlock_release(&ep->prepost_lock);
+		fastlock_release(&ep->xrc.prepost_lock);
 		return fi_ibv_handle_post(fi_recv(ep_fid, buf, len, desc,
 						 src_addr, context));
 	}
 
 	/* The only software error that can occur is overflow */
-	if (OFI_UNLIKELY(ep->prepost_count >= ep->max_recv_wr)) {
+	if (OFI_UNLIKELY(ep->xrc.prepost_count >= ep->xrc.max_recv_wr)) {
 		ret = -FI_EAVAIL;
 		goto done;
 	}
@@ -1197,11 +1197,11 @@ fi_ibv_xrc_srq_ep_prepost_recv(struct fid_ep *ep_fid, void *buf, size_t len,
 	recv->src_addr = src_addr;
 	recv->len = len;
 	recv->context = context;
-	ep->prepost_count++;
-	slist_insert_tail(&recv->prepost_entry, &ep->prepost_list);
+	ep->xrc.prepost_count++;
+	slist_insert_tail(&recv->prepost_entry, &ep->xrc.prepost_list);
 	ret = FI_SUCCESS;
 done:
-	fastlock_release(&ep->prepost_lock);
+	fastlock_release(&ep->xrc.prepost_lock);
 	return ret;
 }
 
@@ -1223,8 +1223,8 @@ static void fi_ibv_cleanup_prepost_bufs(struct fi_ibv_srq_ep *srq_ep)
 	struct fi_ibv_xrc_srx_prepost *recv;
 	struct slist_entry *entry;
 
-	while (!slist_empty(&srq_ep->prepost_list)) {
-		entry = slist_remove_head(&srq_ep->prepost_list);
+	while (!slist_empty(&srq_ep->xrc.prepost_list)) {
+		entry = slist_remove_head(&srq_ep->xrc.prepost_list);
 		recv = container_of(entry, struct fi_ibv_xrc_srx_prepost,
 				    prepost_entry);
 		free(recv);
@@ -1248,7 +1248,7 @@ static int fi_ibv_srq_close(fid_t fid)
 
 	if (srq_ep->domain->use_xrc) {
 		fi_ibv_cleanup_prepost_bufs(srq_ep);
-		fastlock_destroy(&srq_ep->prepost_lock);
+		fastlock_destroy(&srq_ep->xrc.prepost_lock);
 	}
 	free(srq_ep);
 
@@ -1295,10 +1295,10 @@ int fi_ibv_srq_context(struct fid_domain *domain, struct fi_rx_attr *attr,
 	/* XRC SRQ creation is delayed until the first endpoint it is bound
 	 * to is enabled.*/
 	if (dom->use_xrc) {
-		fastlock_init(&srq_ep->prepost_lock);
-		slist_init(&srq_ep->prepost_list);
-		srq_ep->max_recv_wr = attr->size;
-		srq_ep->max_sge = attr->iov_limit;
+		fastlock_init(&srq_ep->xrc.prepost_lock);
+		slist_init(&srq_ep->xrc.prepost_list);
+		srq_ep->xrc.max_recv_wr = attr->size;
+		srq_ep->xrc.max_sge = attr->iov_limit;
 		srq_ep->ep_fid.msg = &fi_ibv_xrc_srq_msg_ops;
 		goto done;
 	}

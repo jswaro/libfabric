@@ -465,16 +465,15 @@ struct fi_ibv_srq_ep {
 	struct ibv_srq		*srq;
 	struct fi_ibv_domain	*domain;
 
-	/* Due to XRC SRQ semantics, an XRC SRX context may only be bound
-	 * to multiple endpoints when they share the same RX CQ. */
-	struct fi_ibv_cq	*srq_cq;
-
-	/* XRC SRQ is not created until endpoint enable */
-	fastlock_t		prepost_lock;
-	struct slist		prepost_list;
-	uint32_t		max_recv_wr;
-	uint32_t		max_sge;
-	uint32_t		prepost_count;
+	/* For XRC SRQ only */
+	struct {
+		/* XRC SRQ is not created until endpoint enable */
+		fastlock_t		prepost_lock;
+		struct slist		prepost_list;
+		uint32_t		max_recv_wr;
+		uint32_t		max_sge;
+		uint32_t		prepost_count;
+	} xrc;
 };
 
 int fi_ibv_srq_context(struct fid_domain *domain, struct fi_rx_attr *attr,
