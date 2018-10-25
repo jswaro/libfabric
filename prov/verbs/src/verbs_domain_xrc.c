@@ -525,8 +525,7 @@ int fi_ibv_domain_xrc_cleanup(struct fi_ibv_domain *domain)
 	assert(domain->xrc.xrcd);
 
 	/* All endpoint and hence XRC INI QP should be closed */
-	if (domain->xrc.ini_conn_rbmap->root !=
-			&domain->xrc.ini_conn_rbmap->sentinel) {
+	if (!ofi_rbmap_empty(domain->xrc.ini_conn_rbmap)) {
 		VERBS_WARN(FI_LOG_DOMAIN, "XRC domain busy\n");
 		return -FI_EBUSY;
 	}
