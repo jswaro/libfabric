@@ -698,7 +698,8 @@ void fi_ibv_free_xrc_conn_setup(struct fi_ibv_xrc_ep *ep);
 void fi_ibv_add_pending_ini_conn(struct fi_ibv_xrc_ep *ep, int reciprocal,
 				 void *conn_param, size_t conn_paramlen);
 void fi_ibv_sched_ini_conn(struct fi_ibv_ini_shared_conn *ini_conn);
-struct fi_ibv_ini_shared_conn *fi_ibv_get_shared_ini_conn(struct fi_ibv_xrc_ep *ep);
+int fi_ibv_get_shared_ini_conn(struct fi_ibv_xrc_ep *ep,
+			       struct fi_ibv_ini_shared_conn **ini_conn);
 void fi_ibv_put_shared_ini_conn(struct fi_ibv_xrc_ep *ep);
 int fi_ibv_reserve_qpn(struct fi_ibv_xrc_ep *ep, struct ibv_qp **qp);
 

@@ -170,9 +170,8 @@ int fi_ibv_connect_xrc(struct fi_ibv_xrc_ep *ep, struct sockaddr *addr,
 	}
 
 	fastlock_acquire(&domain->xrc.ini_mgmt_lock);
-	ep->ini_conn = fi_ibv_get_shared_ini_conn(ep);
-	if (!ep->ini_conn) {
-		ret = -errno;
+	ret = fi_ibv_get_shared_ini_conn(ep, &ep->ini_conn);
+	if (ret) {
 		VERBS_WARN(FI_LOG_FABRIC,
 			   "Get of shared XRC INI connection failed %d\n", ret);
 		fastlock_release(&domain->xrc.ini_mgmt_lock);

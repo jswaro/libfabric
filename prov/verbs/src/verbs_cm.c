@@ -314,25 +314,18 @@ struct fi_ops_cm fi_ibv_msg_ep_cm_ops = {
 };
 
 static int
-fi_ibv_msg_xrc_ep_connect(struct fid_ep *ep, const void *addr,
-		   const void *param, size_t paramlen)
+fi_ibv_msg_xrc_cm_common_verify(struct fi_ibv_xrc_ep *ep, size_t paramlen)
 {
-	struct sockaddr *dst_addr;
-	void *adjusted_param;
-	struct fi_ibv_ep *_ep = container_of(ep, struct fi_ibv_ep,
-					     util_ep.ep_fid);
-	struct fi_ibv_xrc_ep *xrc_ep;
 	int ret;
-	struct fi_ibv_cm_data_hdr *cm_hdr;
 
-	if (!fi_ibv_is_xrc(_ep->info)) {
+	if (!fi_ibv_is_xrc(ep->base_ep.info)) {
 		VERBS_WARN(FI_LOG_EP_CTRL, "EP is not using XRC\n");
 		return -FI_EINVAL;
 	}
-	xrc_ep = container_of(_ep, struct fi_ibv_xrc_ep, base_ep);
 
-	if (!xrc_ep->srqn) {
-		ret = fi_control(&ep->fid, FI_ENABLE, NULL);
+	if (!ep->srqn) {
+		ret = fi_control(&ep->base_ep.util_ep.ep_fid.fid,
+				 FI_ENABLE, NULL);
 		if (ret)
 			return ret;
 	}
@@ -341,9 +334,30 @@ fi_ibv_msg_xrc_ep_connect(struct fid_ep *ep, const void *addr,
 			 sizeof(struct fi_ibv_xrc_cm_data)))
 		return -FI_EINVAL;
 
+	return FI_SUCCESS;
+}
+
+static int
+fi_ibv_msg_xrc_ep_connect(struct fid_ep *ep, const void *addr,
+		   const void *param, size_t paramlen)
+{
+	struct sockaddr *dst_addr;
+	void *adjusted_param;
+	struct fi_ibv_ep *_ep = container_of(ep, struct fi_ibv_ep,
+					     util_ep.ep_fid);
+	struct fi_ibv_xrc_ep *xrc_ep = container_of(_ep, struct fi_ibv_xrc_ep,
+						    base_ep);
+	int ret;
+	struct fi_ibv_cm_data_hdr *cm_hdr;
+
+	ret = fi_ibv_msg_xrc_cm_common_verify(xrc_ep, paramlen);
+	if (ret)
+		return ret;
+
 	cm_hdr = alloca(sizeof(*cm_hdr) + paramlen);
 	fi_ibv_msg_ep_prepare_cm_data(param, paramlen, cm_hdr);
 	paramlen += sizeof(*cm_hdr);
+
 	ret = fi_ibv_msg_alloc_xrc_params(&adjusted_param, cm_hdr, &paramlen);
 	if (ret)
 		return ret;
@@ -360,29 +374,19 @@ fi_ibv_msg_xrc_ep_accept(struct fid_ep *ep, const void *param, size_t paramlen)
 	void *adjusted_param;
 	struct fi_ibv_ep *_ep =
 		container_of(ep, struct fi_ibv_ep, util_ep.ep_fid);
-	struct fi_ibv_xrc_ep *xrc_ep;
+	struct fi_ibv_xrc_ep *xrc_ep = container_of(_ep, struct fi_ibv_xrc_ep,
+						    base_ep);
 	int ret;
 	struct fi_ibv_cm_data_hdr *cm_hdr;
 
-	if (!fi_ibv_is_xrc(_ep->info)) {
-		VERBS_WARN(FI_LOG_EP_CTRL, "EP is not using XRC\n");
-		return -FI_EINVAL;
-	}
-	xrc_ep = container_of(_ep, struct fi_ibv_xrc_ep, base_ep);
-
-	if (!xrc_ep->srqn) {
-		ret = fi_control(&ep->fid, FI_ENABLE, NULL);
-		if (ret)
-			return ret;
-	}
-
-	if (OFI_UNLIKELY(paramlen > VERBS_CM_DATA_SIZE -
-			 sizeof(struct fi_ibv_xrc_cm_data)))
-		return -FI_EINVAL;
+	ret = fi_ibv_msg_xrc_cm_common_verify(xrc_ep, paramlen);
+	if (ret)
+		return ret;
 
 	cm_hdr = alloca(sizeof(*cm_hdr) + paramlen);
 	fi_ibv_msg_ep_prepare_cm_data(param, paramlen, cm_hdr);
 	paramlen += sizeof(*cm_hdr);
+
 	ret = fi_ibv_msg_alloc_xrc_params(&adjusted_param, cm_hdr, &paramlen);
 	if (ret)
 		return ret;

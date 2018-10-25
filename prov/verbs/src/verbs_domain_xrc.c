@@ -104,58 +104,55 @@ static inline void fi_ibv_set_ini_conn_key(struct fi_ibv_xrc_ep *ep,
 }
 
 /* Caller must hold domain:xrc:ini_mgmt_lock */
-struct fi_ibv_ini_shared_conn *fi_ibv_get_shared_ini_conn(struct fi_ibv_xrc_ep *ep)
-{
+int fi_ibv_get_shared_ini_conn(struct fi_ibv_xrc_ep *ep,
+			       struct fi_ibv_ini_shared_conn **ini_conn) {
 	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(&ep->base_ep);
 	struct fi_ibv_ini_conn_key key;
-	struct fi_ibv_ini_shared_conn *ini_conn;
+	struct fi_ibv_ini_shared_conn *conn;
 	struct ofi_rbnode *node;
 	int ret;
-
 	assert(ep->base_ep.id);
 
 	fi_ibv_set_ini_conn_key(ep, &key);
 	node = ofi_rbmap_find(domain->xrc.ini_conn_rbmap, &key);
 	if (node) {
-		ini_conn = node->data;
-		ofi_atomic_inc32(&ini_conn->ref_cnt);
-		return ini_conn;
+		*ini_conn = node->data;
+		ofi_atomic_inc32(&(*ini_conn)->ref_cnt);
+		return FI_SUCCESS;
 	}
 
-	ini_conn = calloc(1, sizeof(*ini_conn));
-	if (!ini_conn) {
-		errno = FI_ENOMEM;
-		return NULL;
-	}
+	*ini_conn = NULL;
+	conn = calloc(1, sizeof(*conn));
+	if (!conn)
+		return -FI_ENOMEM;
 
-	ini_conn->tgt_qpn = FI_IBV_NO_INI_TGT_QPNUM;
-	ini_conn->peer_addr = mem_dup(key.addr, ofi_sizeofaddr(key.addr));
-	if (!ini_conn->peer_addr) {
-		free(ini_conn);
-		errno = FI_ENOMEM;
-		return NULL;
+	conn->tgt_qpn = FI_IBV_NO_INI_TGT_QPNUM;
+	conn->peer_addr = mem_dup(key.addr, ofi_sizeofaddr(key.addr));
+	if (!conn->peer_addr) {
+		free(conn);
+		return -FI_ENOMEM;
 	}
-	ini_conn->tx_cq = container_of(ep->base_ep.util_ep.tx_cq,
-				       struct fi_ibv_cq, util_cq);
-	dlist_init(&ini_conn->pending_list);
-	dlist_init(&ini_conn->active_list);
-	ofi_atomic_initialize32(&ini_conn->ref_cnt, 1);
+	conn->tx_cq = container_of(ep->base_ep.util_ep.tx_cq,
+				   struct fi_ibv_cq, util_cq);
+	dlist_init(&conn->pending_list);
+	dlist_init(&conn->active_list);
+	ofi_atomic_initialize32(&conn->ref_cnt, 1);
 
 	ret = ofi_rbmap_insert(domain->xrc.ini_conn_rbmap,
-			       (void *) &key, (void *) ini_conn);
+			       (void *) &key, (void *) conn);
 	assert(ret != -FI_EALREADY);
 	if (ret) {
 		VERBS_WARN(FI_LOG_FABRIC, "INI QP RBTree insert failed %d\n",
 			   ret);
-		errno = -ret;
 		goto insert_err;
 	}
-	return ini_conn;
+	*ini_conn = conn;
+	return FI_SUCCESS;
 
 insert_err:
-	free(ini_conn->peer_addr);
-	free(ini_conn);
-	return NULL;
+	free(conn->peer_addr);
+	free(conn);
+	return ret;
 }
 
 /* Caller must hold domain:xrc:ini_mgmt_lock */
