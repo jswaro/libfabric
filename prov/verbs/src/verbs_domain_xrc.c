@@ -159,16 +159,17 @@ insert_err:
 void fi_ibv_put_shared_ini_conn(struct fi_ibv_xrc_ep *ep)
 {
 	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(&ep->base_ep);
-	struct fi_ibv_ini_shared_conn *ini_conn = ep->ini_conn;
+	struct fi_ibv_ini_shared_conn *ini_conn;
 	struct fi_ibv_ini_conn_key key;
 	struct ofi_rbnode *node;
 
-	if (!ini_conn)
+	if (!ep->ini_conn)
 		return;
 
 	/* remove from pending or active connection list */
 	dlist_remove(&ep->ini_conn_entry);
 	ep->conn_state = FI_IBV_XRC_UNCONNECTED;
+	ini_conn = ep->ini_conn;
 	ep->ini_conn = NULL;
 	ep->base_ep.ibv_qp = NULL;
 
