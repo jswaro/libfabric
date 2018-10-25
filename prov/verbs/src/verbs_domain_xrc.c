@@ -452,10 +452,27 @@ static int fi_ibv_ini_conn_compare(struct ofi_rbmap *map, void *key, void *data)
 			-1 : _key->tx_cq > ini_conn->tx_cq;
 }
 
+static int fi_ibv_domain_xrc_validate_hw(struct fi_ibv_domain *domain)
+{
+	struct ibv_device_attr attr;
+	int ret;
+
+	ret = ibv_query_device(domain->verbs, &attr);
+	if (ret || !(attr.device_cap_flags & IBV_DEVICE_XRC)) {
+		VERBS_INFO(FI_LOG_DOMAIN, "XRC is not supported");
+		return -FI_EINVAL;
+	}
+	return FI_SUCCESS;
+}
+
 int fi_ibv_domain_xrc_init(struct fi_ibv_domain *domain)
 {
 	struct ibv_xrcd_init_attr attr;
 	int ret;
+
+	ret = fi_ibv_domain_xrc_validate_hw(domain);
+	if (ret)
+		return ret;
 
 	domain->xrc.xrcd_fd = -1;
 	if (fi_ibv_gl_data.msg.xrcd_filename) {
@@ -491,7 +508,7 @@ int fi_ibv_domain_xrc_init(struct fi_ibv_domain *domain)
 	ofi_rbmap_init(domain->xrc.ini_conn_rbmap);
 
 	domain->use_xrc = 1;
-	return 0;
+	return FI_SUCCESS;
 
 rbmap_err:
 	(void)ibv_close_xrcd(domain->xrc.xrcd);
