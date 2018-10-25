@@ -471,9 +471,6 @@ struct fi_ibv_srq_ep {
 
 	/* XRC SRQ is not created until endpoint enable */
 	fastlock_t		prepost_lock;
-	ofi_fastlock_acquire_t	pp_fastlock_acquire;
-	ofi_fastlock_release_t	pp_fastlock_release;
-
 	struct slist		prepost_list;
 	uint32_t		max_recv_wr;
 	uint32_t		max_sge;

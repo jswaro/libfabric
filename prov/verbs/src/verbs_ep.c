@@ -426,14 +426,14 @@ static int fi_ibv_ep_enable_xrc(struct fi_ibv_ep *ep)
 	dlist_init(&xrc_ep->ini_conn_entry);
 	xrc_ep->conn_state = FI_IBV_XRC_UNCONNECTED;
 
-	srq_ep->pp_fastlock_acquire(&srq_ep->prepost_lock);
+	fastlock_acquire(&srq_ep->prepost_lock);
 	if (srq_ep->srq) {
 		/*
 		 * Multiple endpoints bound to the same XRC SRX context have
 		 * the restriction that they must be bound to the same RX CQ
 		 */
 		if (!cq->xrc_srq_ep || srq_ep->srq != cq->xrc_srq_ep->srq) {
-			ep->srq_ep->pp_fastlock_release(&srq_ep->prepost_lock);
+			fastlock_release(&srq_ep->prepost_lock);
 			VERBS_WARN(FI_LOG_EP_CTRL, "SRX_CTX/CQ mismatch\n");
 			return -FI_EINVAL;
 		}
@@ -465,7 +465,7 @@ static int fi_ibv_ep_enable_xrc(struct fi_ibv_ep *ep)
 	srq_ep->ep_fid.msg = &fi_ibv_srq_msg_ops;
 	ret = fi_ibv_process_xrc_preposted(srq_ep);
 done:
-	ep->srq_ep->pp_fastlock_release(&srq_ep->prepost_lock);
+	fastlock_release(&srq_ep->prepost_lock);
 
 	return ret;
 }
@@ -1170,12 +1170,12 @@ fi_ibv_xrc_srq_ep_prepost_recv(struct fid_ep *ep_fid, void *buf, size_t len,
 	struct fi_ibv_xrc_srx_prepost *recv;
 	ssize_t ret;
 
-	ep->pp_fastlock_acquire(&ep->prepost_lock);
+	fastlock_acquire(&ep->prepost_lock);
 
 	/* Handle race that can occur when SRQ is created and pre-post
 	 * receive message function is swapped out. */
 	if (ep->srq) {
-		ep->pp_fastlock_release(&ep->prepost_lock);
+		fastlock_release(&ep->prepost_lock);
 		return fi_ibv_handle_post(fi_recv(ep_fid, buf, len, desc,
 						 src_addr, context));
 	}
@@ -1201,7 +1201,7 @@ fi_ibv_xrc_srq_ep_prepost_recv(struct fid_ep *ep_fid, void *buf, size_t len,
 	slist_insert_tail(&recv->prepost_entry, &ep->prepost_list);
 	ret = FI_SUCCESS;
 done:
-	ep->pp_fastlock_release(&ep->prepost_lock);
+	fastlock_release(&ep->prepost_lock);
 	return ret;
 }
 
@@ -1296,14 +1296,6 @@ int fi_ibv_srq_context(struct fid_domain *domain, struct fi_rx_attr *attr,
 	 * to is enabled.*/
 	if (dom->use_xrc) {
 		fastlock_init(&srq_ep->prepost_lock);
-		if (dom->util_domain.threading == FI_THREAD_DOMAIN) {
-			srq_ep->pp_fastlock_acquire = ofi_fastlock_acquire_noop;
-			srq_ep->pp_fastlock_release = ofi_fastlock_release_noop;
-		} else {
-			srq_ep->pp_fastlock_acquire = ofi_fastlock_acquire;
-			srq_ep->pp_fastlock_release = ofi_fastlock_release;
-		}
-
 		slist_init(&srq_ep->prepost_list);
 		srq_ep->max_recv_wr = attr->size;
 		srq_ep->max_sge = attr->iov_limit;
