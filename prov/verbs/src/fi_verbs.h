@@ -673,7 +673,6 @@ struct fi_ibv_cm_data_hdr {
 };
 
 void fi_ibv_msg_ep_get_qp_attr(struct fi_ibv_ep *ep,
-			       struct fi_ibv_domain **domain,
 			       struct ibv_qp_init_attr *attr);
 int fi_ibv_process_xrc_connreq(struct fi_ibv_ep *ep,
 			       struct fi_ibv_connreq *connreq);

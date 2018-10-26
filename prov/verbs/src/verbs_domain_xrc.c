@@ -78,7 +78,7 @@ static int fi_ibv_create_ini_qp(struct fi_ibv_xrc_ep *ep)
 	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(&ep->base_ep);
 	int ret;
 
-	fi_ibv_msg_ep_get_qp_attr(&ep->base_ep, NULL,
+	fi_ibv_msg_ep_get_qp_attr(&ep->base_ep,
 			(struct ibv_qp_init_attr *)&attr_ex);
 	attr_ex.qp_type = IBV_QPT_XRC_SEND;
 	attr_ex.comp_mask = IBV_QP_INIT_ATTR_PD;
@@ -359,7 +359,7 @@ int fi_ibv_ep_create_tgt_qp(struct fi_ibv_xrc_ep *ep, uint32_t tgt_qpn)
 
 	/* An existing XRC target was not specified, create XRC TGT
 	 * side of new physical connection. */
-	fi_ibv_msg_ep_get_qp_attr(&ep->base_ep, NULL,
+	fi_ibv_msg_ep_get_qp_attr(&ep->base_ep,
 			(struct ibv_qp_init_attr *)&attr_ex);
 	attr_ex.qp_type = IBV_QPT_XRC_RECV;
 	attr_ex.qp_context = ep;

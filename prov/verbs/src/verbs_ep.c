@@ -471,7 +471,6 @@ done:
 }
 
 void fi_ibv_msg_ep_get_qp_attr(struct fi_ibv_ep *ep,
-			       struct fi_ibv_domain **domain,
 			       struct ibv_qp_init_attr *attr)
 {
 	if (ep->util_ep.tx_cq) {
@@ -510,20 +509,17 @@ void fi_ibv_msg_ep_get_qp_attr(struct fi_ibv_ep *ep,
 		/* Recieve posts are done to SRQ not QP RQ */
 		attr->cap.max_recv_wr = 0;
 	}
-
-	if (domain)
-		*domain = fi_ibv_ep_to_domain(ep);
 }
 
 
 static int fi_ibv_ep_enable(struct fid_ep *ep_fid)
 {
 	struct ibv_qp_init_attr attr = { 0 };
-	struct fi_ibv_domain *domain;
-	struct fi_ibv_ep *ep;
+	struct fi_ibv_ep *ep = container_of(ep_fid, struct fi_ibv_ep,
+					    util_ep.ep_fid);
+	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(ep);
 	int ret;
 
-	ep = container_of(ep_fid, struct fi_ibv_ep, util_ep.ep_fid);
 	if (!ep->eq && (ep->util_ep.type == FI_EP_MSG)) {
 		VERBS_WARN(FI_LOG_EP_CTRL,
 			   "Endpoint is not bound to an event queue\n");
@@ -550,7 +546,7 @@ static int fi_ibv_ep_enable(struct fid_ep *ep_fid)
 			   "capabilities enabled. (FI_RECV)\n");
 		return -FI_ENOCQ;
 	}
-	fi_ibv_msg_ep_get_qp_attr(ep, &domain, &attr);
+	fi_ibv_msg_ep_get_qp_attr(ep, &attr);
 
 	switch (ep->util_ep.type) {
 	case FI_EP_MSG:
