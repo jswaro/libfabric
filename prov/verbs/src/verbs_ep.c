@@ -720,18 +720,13 @@ int fi_ibv_open_ep(struct fid_domain *domain, struct fi_info *info,
 	struct fi_ibv_pep *pep;
 	struct fi_info *fi;
 	int ret;
-	char buf[OFI_ADDRSTRLEN];
-	size_t len = sizeof(buf);
 
-	if (info->src_addr) {
-		ofi_straddr(buf, &len, info->addr_format, info->src_addr);
-		VERBS_DBG(FI_LOG_FABRIC, "Open_EP src addr: %s\n", buf);
-	}
-	if (info->dest_addr) {
-		len = sizeof(buf);
-		ofi_straddr(buf, &len, info->addr_format, info->dest_addr);
-		VERBS_DBG(FI_LOG_FABRIC, "Open_EP dest addr: %s\n", buf);
-	}
+	if (info->src_addr)
+		ofi_straddr_dbg(&fi_ibv_prov, FI_LOG_FABRIC,
+				"open_ep src addr", info->src_addr);
+	if (info->dest_addr)
+		ofi_straddr_dbg(&fi_ibv_prov, FI_LOG_FABRIC,
+				"open_ep dest addr", info->dest_addr);
 
 	dom = container_of(domain, struct fi_ibv_domain,
 			   util_domain.domain_fid);
