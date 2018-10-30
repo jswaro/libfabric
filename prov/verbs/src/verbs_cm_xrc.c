@@ -192,24 +192,19 @@ int fi_ibv_connect_xrc(struct fi_ibv_xrc_ep *ep, struct sockaddr *addr,
 {
 	struct fi_ibv_domain *domain = fi_ibv_ep_to_domain(&ep->base_ep);
 	struct sockaddr *peer_addr;
-	char buf[OFI_ADDRSTRLEN];
-	size_t len = sizeof(buf);
 	int ret;
 
 	assert(ep->base_ep.id && !ep->base_ep.ibv_qp && !ep->ini_conn);
 
 	peer_addr = rdma_get_local_addr(ep->base_ep.id);
-	if (peer_addr) {
-		ofi_straddr(buf, &len, ep->base_ep.info->addr_format,
-			    peer_addr);
-		VERBS_DBG(FI_LOG_FABRIC, "XRC connect src_addr: %s\n", buf);
-	}
+	if (peer_addr)
+		ofi_straddr_dbg(&fi_ibv_prov, FI_LOG_FABRIC,
+				"XRC connect src_addr", peer_addr);
+
 	peer_addr = rdma_get_peer_addr(ep->base_ep.id);
-	if (peer_addr) {
-		ofi_straddr(buf, &len, ep->base_ep.info->addr_format,
-			    peer_addr);
-		VERBS_DBG(FI_LOG_FABRIC, "XRC connect dst_addr: %s\n", buf);
-	}
+	if (peer_addr)
+		ofi_straddr_dbg(&fi_ibv_prov, FI_LOG_FABRIC,
+				"XRC connect dest_addr", peer_addr);
 
 	if (!reciprocal) {
 		ep->conn_setup = calloc(1, sizeof(*ep->conn_setup));
@@ -296,21 +291,15 @@ int fi_ibv_accept_xrc(struct fi_ibv_xrc_ep *ep, int reciprocal,
 	struct fi_ibv_connreq *connreq;
 	struct rdma_conn_param conn_param = { 0 };
 	struct fi_ibv_xrc_cm_data *cm_data = param;
-	char buf[OFI_ADDRSTRLEN];
-	size_t len = sizeof(buf);
 	int ret;
 
 	addr = rdma_get_local_addr(ep->tgt_id);
-	if (addr) {
-		ofi_straddr(buf, &len, ep->base_ep.info->addr_format, addr);
-		VERBS_INFO(FI_LOG_CORE, "src_addr: %s\n", buf);
-	}
+	if (addr)
+		ofi_straddr_dbg(&fi_ibv_prov, FI_LOG_CORE, "src_addr", addr);
+
 	addr = rdma_get_peer_addr(ep->tgt_id);
-	if (addr) {
-		len = sizeof(buf);
-		ofi_straddr(buf, &len, ep->base_ep.info->addr_format, addr);
-		VERBS_INFO(FI_LOG_CORE, "dst_addr: %s\n", buf);
-	}
+	if (addr)
+		ofi_straddr_dbg(&fi_ibv_prov, FI_LOG_CORE, "dest_addr", addr);
 
 	connreq = container_of(ep->base_ep.info->handle,
 			       struct fi_ibv_connreq, handle);
