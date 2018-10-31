@@ -435,7 +435,7 @@ static int fi_ibv_ep_enable_xrc(struct fi_ibv_ep *ep)
 		 * Multiple endpoints bound to the same XRC SRX context have
 		 * the restriction that they must be bound to the same RX CQ
 		 */
-		if (!cq->xrc_srq_ep || srq_ep->srq != cq->xrc_srq_ep->srq) {
+		if (!srq_ep->xrc.cq || srq_ep->xrc.cq != cq) {
 			fastlock_release(&srq_ep->xrc.prepost_lock);
 			VERBS_WARN(FI_LOG_EP_CTRL, "SRX_CTX/CQ mismatch\n");
 			return -FI_EINVAL;
@@ -461,7 +461,13 @@ static int fi_ibv_ep_enable_xrc(struct fi_ibv_ep *ep)
 		ret = -errno;
 		goto done;
 	}
-	cq->xrc_srq_ep = srq_ep;
+	/* The RX CQ maintains a list of all the XRC SRQs that were created
+	 * using it as the CQ */
+	cq->util_cq.cq_fastlock_acquire(&cq->xrc.srq_list_lock);
+	dlist_insert_tail(&srq_ep->xrc.srq_entry, &cq->xrc.srq_list);
+	srq_ep->xrc.cq = cq;
+	cq->util_cq.cq_fastlock_release(&cq->xrc.srq_list_lock);
+
 	ibv_get_srq_num(srq_ep->srq, &xrc_ep->srqn);
 
 	/* Swap functions since locking is no longer required */
@@ -1225,28 +1231,54 @@ static void fi_ibv_cleanup_prepost_bufs(struct fi_ibv_srq_ep *srq_ep)
 	}
 }
 
-static int fi_ibv_srq_close(fid_t fid)
+/* Must hold the associated CQ lock cq::xrc.srq_list_lock */
+int fi_ibv_xrc_close_srq(struct fi_ibv_srq_ep *srq_ep)
 {
-	struct fi_ibv_srq_ep *srq_ep;
 	int ret;
 
-	srq_ep = container_of(fid, struct fi_ibv_srq_ep, ep_fid.fid);
-	if (srq_ep->srq) {
-		ret = ibv_destroy_srq(srq_ep->srq);
-		if (ret) {
-			VERBS_WARN(FI_LOG_EP_CTRL,
-				   "Cannot destroy SRQ rc=%d\n", ret);
-			return ret;
-		}
-	}
+	assert(srq_ep->domain->use_xrc);
+	if (!srq_ep->xrc.cq || !srq_ep->srq)
+		return FI_SUCCESS;
 
-	if (srq_ep->domain->use_xrc) {
-		fi_ibv_cleanup_prepost_bufs(srq_ep);
-		fastlock_destroy(&srq_ep->xrc.prepost_lock);
+	ret = ibv_destroy_srq(srq_ep->srq);
+	if (ret) {
+		VERBS_WARN(FI_LOG_EP_CTRL, "Cannot destroy SRQ rc=%d\n", ret);
+		return -ret;
 	}
-	free(srq_ep);
+	srq_ep->srq = NULL;
+	srq_ep->xrc.cq = NULL;
+	dlist_remove(&srq_ep->xrc.srq_entry);
+	fi_ibv_cleanup_prepost_bufs(srq_ep);
 
 	return FI_SUCCESS;
+}
+
+static int fi_ibv_srq_close(fid_t fid)
+{
+	struct fi_ibv_srq_ep *srq_ep = container_of(fid, struct fi_ibv_srq_ep,
+						    ep_fid.fid);
+	int ret;
+
+	if (srq_ep->domain->use_xrc) {
+		if (srq_ep->xrc.cq) {
+			fastlock_acquire(&srq_ep->xrc.cq->xrc.srq_list_lock);
+			ret = fi_ibv_xrc_close_srq(srq_ep);
+			fastlock_release(&srq_ep->xrc.cq->xrc.srq_list_lock);
+			if (ret)
+				goto err;
+		}
+		fastlock_destroy(&srq_ep->xrc.prepost_lock);
+	} else {
+		ret = ibv_destroy_srq(srq_ep->srq);
+		if (ret)
+			goto err;
+	}
+	free(srq_ep);
+	return FI_SUCCESS;
+
+err:
+	VERBS_WARN(FI_LOG_EP_CTRL, "Cannot destroy SRQ rc=%d\n", ret);
+	return ret;
 }
 
 static struct fi_ops fi_ibv_srq_ep_ops = {
@@ -1291,6 +1323,7 @@ int fi_ibv_srq_context(struct fid_domain *domain, struct fi_rx_attr *attr,
 	if (dom->use_xrc) {
 		fastlock_init(&srq_ep->xrc.prepost_lock);
 		slist_init(&srq_ep->xrc.prepost_list);
+		dlist_init(&srq_ep->xrc.srq_entry);
 		srq_ep->xrc.max_recv_wr = attr->size;
 		srq_ep->xrc.max_sge = attr->iov_limit;
 		srq_ep->ep_fid.msg = &fi_ibv_xrc_srq_msg_ops;

@@ -376,8 +376,11 @@ struct fi_ibv_cq {
 	ofi_atomic32_t		nevents;
 	struct util_buf_pool	*wce_pool;
 
-	/* The IB XRC SRQ context associated with this CQ */
-	struct fi_ibv_srq_ep	*xrc_srq_ep;
+	struct {
+		/* The list of XRC SRQ contexts associated with this CQ */
+		fastlock_t		srq_list_lock;
+		struct dlist_entry	srq_list;
+	} xrc;
 };
 
 int fi_ibv_cq_open(struct fid_domain *domain, struct fi_cq_attr *attr,
@@ -472,6 +475,14 @@ struct fi_ibv_srq_ep {
 		uint32_t		max_recv_wr;
 		uint32_t		max_sge;
 		uint32_t		prepost_count;
+
+		/* The RX CQ associated with this XRC SRQ. This field
+		 * and the srq_entry should only be modified while holding
+		 * the associted cq::xrc.srq_list_lock. */
+		struct fi_ibv_cq	*cq;
+
+		/* The CQ maintains a list of XRC SRQ associated with it */
+		struct dlist_entry	srq_entry;
 	} xrc;
 };
 
@@ -710,6 +721,7 @@ int fi_ibv_ep_create_tgt_qp(struct fi_ibv_xrc_ep *ep, uint32_t tgt_qpn);
 void fi_ibv_ep_tgt_conn_done(struct fi_ibv_xrc_ep *qp);
 int fi_ibv_ep_destroy_xrc_qp(struct fi_ibv_xrc_ep *ep);
 
+int fi_ibv_xrc_close_srq(struct fi_ibv_srq_ep *srq_ep);
 int fi_ibv_sockaddr_len(struct sockaddr *addr);
 
 
