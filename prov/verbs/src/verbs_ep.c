@@ -389,12 +389,15 @@ static int fi_ibv_create_dgram_ep(struct fi_ibv_domain *domain, struct fi_ibv_ep
 	return 0;
 }
 
+/* fi_ibv_srq_ep::xrc.prepost_lock must be held */
 static int fi_ibv_process_xrc_preposted(struct fi_ibv_srq_ep *srq_ep)
 {
 	struct fi_ibv_xrc_srx_prepost *recv;
 	struct slist_entry *entry;
 	int ret;
 
+	/* The pre-post SRQ function ops have been replaced so the
+	 * posting here results in adding the RX entries to the SRQ */
 	while (!slist_empty(&srq_ep->xrc.prepost_list)) {
 		entry = slist_remove_head(&srq_ep->xrc.prepost_list);
 		recv = container_of(entry, struct fi_ibv_xrc_srx_prepost,
