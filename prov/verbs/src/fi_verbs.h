@@ -279,8 +279,7 @@ struct fi_ibv_eq {
 		/* The connection key map is used during the XRC connection
 		 * process to map an XRC reciprocal connection request back
 		 * to the active endpoint that initiated the original
-		 * connection request. */
-		fastlock_t		idx_lock;
+		 * connection request. It is protected with the eq::lock */
 		struct ofi_key_idx	conn_key_idx;
 		struct indexer		*conn_key_map;
 

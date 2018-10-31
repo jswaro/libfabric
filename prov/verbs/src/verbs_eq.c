@@ -64,11 +64,11 @@ void fi_ibv_eq_set_xrc_conn_tag(struct fi_ibv_xrc_ep *ep)
 {
 	struct fi_ibv_eq *eq = ep->base_ep.eq;
 
-	fastlock_acquire(&eq->xrc.idx_lock);
+	fastlock_acquire(&eq->lock);
 	ep->conn_setup->conn_tag =
 		(uint32_t)ofi_idx2key(&eq->xrc.conn_key_idx,
 				ofi_idx_insert(eq->xrc.conn_key_map, ep));
-	fastlock_release(&eq->xrc.idx_lock);
+	fastlock_release(&eq->lock);
 }
 
 void fi_ibv_eq_clear_xrc_conn_tag(struct fi_ibv_xrc_ep *ep)
@@ -76,7 +76,7 @@ void fi_ibv_eq_clear_xrc_conn_tag(struct fi_ibv_xrc_ep *ep)
 	struct fi_ibv_eq *eq = ep->base_ep.eq;
 	int index;
 
-	fastlock_acquire(&eq->xrc.idx_lock);
+	fastlock_acquire(&eq->lock);
 	index = ofi_key2idx(&eq->xrc.conn_key_idx,
 			    (uint64_t)ep->conn_setup->conn_tag);
 	if (!ofi_idx_is_valid(eq->xrc.conn_key_map, index))
@@ -84,7 +84,7 @@ void fi_ibv_eq_clear_xrc_conn_tag(struct fi_ibv_xrc_ep *ep)
 	else
 		ofi_idx_remove(eq->xrc.conn_key_map, index);
 	ep->conn_setup->conn_tag = 0;
-	fastlock_release(&eq->xrc.idx_lock);
+	fastlock_release(&eq->lock);
 }
 
 struct fi_ibv_xrc_ep *fi_ibv_eq_xrc_conn_tag2ep(struct fi_ibv_eq *eq,
@@ -93,13 +93,13 @@ struct fi_ibv_xrc_ep *fi_ibv_eq_xrc_conn_tag2ep(struct fi_ibv_eq *eq,
 	struct fi_ibv_xrc_ep *ep;
 	int index;
 
-	fastlock_acquire(&eq->xrc.idx_lock);
+	fastlock_acquire(&eq->lock);
 	index = ofi_key2idx(&eq->xrc.conn_key_idx, (uint64_t)conn_tag);
 	ep = ofi_idx_lookup(eq->xrc.conn_key_map, index);
 	if (!ep)
 		VERBS_WARN(FI_LOG_FABRIC,
 			   "Invalid XRC connection tag\n");
-	fastlock_release(&eq->xrc.idx_lock);
+	fastlock_release(&eq->lock);
 
 	return ep;
 }
@@ -753,7 +753,6 @@ static int fi_ibv_eq_close(fid_t fid)
 
 	ofi_idx_reset(eq->xrc.conn_key_map);
 	free(eq->xrc.conn_key_map);
-	fastlock_destroy(&eq->xrc.idx_lock);
 	fastlock_destroy(&eq->lock);
 	free(eq);
 
@@ -788,7 +787,6 @@ int fi_ibv_eq_open(struct fid_fabric *fabric, struct fi_eq_attr *attr,
 		ret = -ENOMEM;
 		goto err0;
 	}
-	fastlock_init(&_eq->xrc.idx_lock);
 	fastlock_init(&_eq->lock);
 	ret = dlistfd_head_init(&_eq->list_head);
 	if (ret) {
@@ -853,7 +851,6 @@ err2:
 	dlistfd_head_free(&_eq->list_head);
 err1:
 	fastlock_destroy(&_eq->lock);
-	fastlock_destroy(&_eq->xrc.idx_lock);
 	free(_eq->xrc.conn_key_map);
 err0:
 	free(_eq);
