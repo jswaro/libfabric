@@ -12,8 +12,21 @@ AC_DEFUN([FI_VERBS_CONFIGURE],[
 	verbs_ibverbs_happy=0
 	verbs_rdmacm_happy=0
 	verbs_ibverbs_exp_happy=0
+	AS_IF([test -d $srcdir/prov/gni/test],
+                     [AC_ARG_WITH([criterion], [AS_HELP_STRING([--with-criterion],
+                     [Location for criterion unit testing framework])])],
+                     [criterion_tests_present=false])	
+
 	AS_IF([test x"$enable_verbs" != x"no"],
-	      [FI_CHECK_PACKAGE([verbs_ibverbs],
+              [
+              AC_ARG_WITH([ibverbs], [AS_HELP_STRING([--with-ibverbs],
+                     [Location for ibverbs/rdma-core root installation directory])],
+		[verbs_PREFIX=$with_ibverbs
+		 verbs_LIBDIR=$with_ibverbs/lib])	
+		AC_MSG_NOTICE([verbs_PREFIX : $verbs_PREFIX])
+		AC_MSG_NOTICE([verbs_LIBDIR : $verbs_LIBDIR])
+
+	      FI_CHECK_PACKAGE([verbs_ibverbs],
 				[infiniband/verbs.h],
 				[ibverbs],
 				[ibv_open_device],
@@ -70,9 +83,13 @@ AC_DEFUN([FI_VERBS_CONFIGURE],[
 	# unlikely that they ever will be.  So only list
 	# verbs_ibverbs_CPPFLAGS here.  Same with verbs_*_LDFLAGS,
 	# below.
-	verbs_CPPFLAGS=$verbs_ibverbs_CPPFLAGS
-	verbs_LDFLAGS=$verbs_ibverbs_LDFLAGS
+	verbs_CPPFLAGS="$verbs_rdmacm_CPPFLAGS $verbs_ibverbs_CPPFLAGS"
+	verbs_LDFLAGS="$verbs_rdmacm_LDFLAGS $verbs_ibverbs_LDFLAGS"
 	verbs_LIBS="$verbs_rdmacm_LIBS $verbs_ibverbs_LIBS"
+	AC_MSG_NOTICE([verbs_CPPFLAGS : $verbs_CPPFLAGS])
+	AC_MSG_NOTICE([verbs_LDFLAGS  : $verbs_LDFLAGS])
+	AC_MSG_NOTICE([verbs_LIBS     : $verbs_LIBS])
+
 	AC_SUBST(verbs_CPPFLAGS)
 	AC_SUBST(verbs_LDFLAGS)
 	AC_SUBST(verbs_LIBS)
