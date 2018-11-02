@@ -77,8 +77,8 @@ install:
     - if [[ "$TRAVIS_OS_NAME" == "linux" && "`basename $CC`" == "clang" ]]; then
         ./configure CFLAGS="-Werror $CFLAGS" $LIBFABRIC_CONFIGURE_ARGS --enable-debug ;
         echo ./configure CFLAGS="-Werror $CFLAGS" $LIBFABRIC_CONFIGURE_ARGS --enable-debug ;
-	cat config.log ;
-	make clean ;
+        cat config.log ;
+        make clean ;
 	make -j2;
       fi
     # Test fabric direct
