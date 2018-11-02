@@ -62,7 +62,7 @@ install:
     # Build verbs only in linux as OS X doesn't have verbs support
     - if [[ "$TRAVIS_OS_NAME" == "linux" ]] ; then
         RDMA_CORE_BRANCH=v20 ;
-        git clone --depth 1 -b $RDMA_CORE_BRANCH https://github.com/linux-rdma/rdma-core.git && cd rdma-core && buildlib/cbuild pkg && cd - ;
+        git clone --depth 1 -b $RDMA_CORE_BRANCH https://github.com/linux-rdma/rdma-core.git && cd rdma-core && buildlib/cbuild pkg ubuntu-14.04 && cd - ;
         LIBFABRIC_CONFIGURE_ARGS="$LIBFABRIC_CONFIGURE_ARGS --with-ibverbs=$PWD/rdma-core/build" ;
         find $PWD/rdma-core/build ;
         nm $PWD/rdma-core/build/lib/librdmacm.so ;
