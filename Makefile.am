@@ -103,15 +103,18 @@ bin_SCRIPTS =
 
 util_fi_info_SOURCES = \
 	util/info.c
-util_fi_info_LDADD = $(linkback)
+util_fi_info_LDADD = $(linkback) \
+	-L/home/travis/build/jswaro/libfabric/rdma-core/build/lib
 
 util_fi_strerror_SOURCES = \
 	util/strerror.c
-util_fi_strerror_LDADD = $(linkback)
+util_fi_strerror_LDADD = $(linkback) \
+	-L/home/travis/build/jswaro/libfabric/rdma-core/build/lib
 
 util_fi_pingpong_SOURCES = \
 	util/pingpong.c
-util_fi_pingpong_LDADD = $(linkback)
+util_fi_pingpong_LDADD = $(linkback) \
+	-L/home/travis/build/jswaro/libfabric/rdma-core/build/lib
 
 nodist_src_libfabric_la_SOURCES =
 src_libfabric_la_SOURCES =			\
@@ -150,7 +153,7 @@ src_libfabric_la_SOURCES =			\
 	src/perf.c				\
 	src/log.c				\
 	src/var.c				\
-	src/abi_1_0.c				\
+	s./util/.libs/fi_strerrorrc/abi_1_0.c				\
 	prov/hook/src/hook.c			\
 	prov/hook/src/hook_av.c			\
 	prov/hook/src/hook_cm.c			\
