@@ -11,8 +11,6 @@ addons:
     apt:
         packages:
             - rpm
-            - libibverbs-dev
-            - librdmacm-dev
             - libnl-3-200
             - libnl-3-dev
             - libnl-route-3-200
