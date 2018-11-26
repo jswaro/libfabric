@@ -136,7 +136,7 @@ pipeline {
                 stage('SFT tests') {
                     environment {
                         SFT_BIN = "${SFT_INSTALL_PATH + '/bin'}"
-                        SFT_ADD_ARGS = "--additional-args ' '"
+                        SFT_ADD_ARGS = "--additional-args '--use-xrc'"
                         SFT_MAX_JOB_TIME = '3'
                         SFT_NUM_JOBS = '4'
                         SFT_PROVIDER = 'verbs;ofi_rxm'
