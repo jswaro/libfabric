@@ -81,9 +81,9 @@ void ofi_monitors_init(void)
 	uffd_monitor->init(uffd_monitor);
 	memhooks_monitor->init(memhooks_monitor);
 
-#if defined(HAVE_ELF_H) && defined(HAVE_SYS_AUXV_H)
+#if defined(HAVE_ELF_H) && defined(HAVE_SYS_AUXV_H) && ENABLE_MEMHOOKS_MONITOR
         default_monitor = memhooks_monitor;
-#elif HAVE_UFFD_UNMAP
+#elif HAVE_UFFD_UNMAP && ENABLE_UFFD_MONITOR
         default_monitor = uffd_monitor;
 #else
         default_monitor = NULL;
@@ -120,13 +120,19 @@ void ofi_monitors_init(void)
 
 	if (cache_params.monitor != NULL) {
 		if (!strcmp(cache_params.monitor, "userfaultfd")) {
-#if HAVE_UFFD_UNMAP
+#if HAVE_UFFD_UNMAP && ENABLE_UFFD_MONITOR
 			default_monitor = uffd_monitor;
 #else
 			FI_WARN(&core_prov, FI_LOG_MR, "userfaultfd monitor not available\n");
+			default_monitor = NULL;
 #endif
 		} else if (!strcmp(cache_params.monitor, "memhooks")) {
+#if ENABLE_MEMHOOKS_MONITOR
 			default_monitor = memhooks_monitor;
+#else
+			FI_WARN(&core_prov, FI_LOG_MR, "memhooks monitor not available\n");
+			default_monitor = NULL;
+#endif
 		} else if (!strcmp(cache_params.monitor, "disabled")) {
 			default_monitor = NULL;
 		}
