@@ -1,0 +1,13 @@
+@Library('dst-shared@master') _
+@Library('CrayNetworkCI@master') _x
+
+currentReleaseBranch = currentLibfabricRelease()
+
+sle15sp1CN {
+    timeout = 5
+    buildExternal = "true"
+    product = 'shasta-premium'
+    masterBranch = currentReleaseBranch
+    buildPrepScript = "contrib/cray/runBuildPrep.sh"
+    rpmBuildScript = "contrib/cray/cray_rpmbuild.sh"
+}
