@@ -75,5 +75,7 @@ cleanup
     -M /opt/cray/modulefiles \
     -V ${NEW_VERSION} \
     -c "--disable-memhooks-monitor" \
+    -c "--with-cuda=/usr/local/cuda" \
+    -c "--enable-cuda-dlopen" \
     -D \
     libfabric-${NEW_VERSION}.tar.bz2
