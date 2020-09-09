@@ -30,6 +30,8 @@
  * SOFTWARE.
  */
 
+// comment here
+
 #include "config.h"
 
 #include <ofi_mem.h>
