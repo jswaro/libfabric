@@ -31,6 +31,7 @@
  */
 
 // comment here
+// a bad commit
 
 #include "config.h"
 
